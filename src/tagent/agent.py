@@ -91,12 +91,19 @@ def get_tool_documentation(tools: Dict[str, Callable]) -> str:
 
 def detect_action_loop(recent_actions: List[str], max_recent: int = 3) -> bool:
     """Detects if agent is in a loop of repeated actions."""
-    if len(recent_actions) < max_recent:
+    if len(recent_actions) < 2:  # Check even for 2 consecutive actions
         return False
     
-    # Check if last 3 actions are the same
-    last_actions = recent_actions[-max_recent:]
-    return len(set(last_actions)) == 1
+    # Check if last 2+ actions are the same (especially for evaluate)
+    if len(recent_actions) >= 2 and recent_actions[-1] == recent_actions[-2]:
+        return True
+    
+    # Original check for 3+ actions
+    if len(recent_actions) >= max_recent:
+        last_actions = recent_actions[-max_recent:]
+        return len(set(last_actions)) == 1
+    
+    return False
 
 def format_conversation_as_chat(conversation_history: List[Dict[str, str]]) -> str:
     """
@@ -137,7 +144,7 @@ def query_llm(prompt: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] 
     # System prompt with few-shot example to improve outputs (inspired by https://python.langchain.com/docs/how_to/debugging/)
     system_message = {
         "role": "system",
-        "content": "You are a helpful assistant designed to output JSON. Example: {'action': 'execute', 'params': {'tool': 'tool_name', 'args': {'parameter': 'value'}}, 'reasoning': 'Reason to execute the action.'}"
+        "content": "You are a helpful assistant designed to output JSON. For 'evaluate' actions, include specific feedback. Example: {'action': 'execute', 'params': {'tool': 'tool_name', 'args': {'parameter': 'value'}}, 'reasoning': 'Reason to execute the action.'} or {'action': 'evaluate', 'params': {'achieved': false, 'missing_items': ['item1', 'item2'], 'suggestions': ['suggestion1']}, 'reasoning': 'Detailed explanation of what is missing and why goal is not achieved.'}"
     }
     
     # Use detailed tool documentation if available
@@ -152,6 +159,7 @@ def query_llm(prompt: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] 
             f"{available_tools}"
             "When using 'execute' action, choose the most appropriate tool based on its documentation. "
             "Ensure 'params' contains 'tool' (tool name) and 'args' (parameters matching the tool's signature).\n"
+            "When using 'evaluate' action, if goal is NOT achieved, include 'missing_items' and 'suggestions' in params.\n"
             "Respond ONLY with a valid JSON in the format: "
             "{'action': str (plan|execute|summarize|evaluate), 'params': dict, 'reasoning': str}."
             "Do not add extra text."
@@ -318,7 +326,7 @@ def goal_evaluation_action(state: Dict[str, Any], model: str, api_key: Optional[
     data_items = [k for k, v in state.items() if k not in ['goal', 'achieved', 'used_tools'] and v]
     print_retro_status("EVALUATE", f"Analyzing {len(data_items)} collected data items")
     
-    prompt = f"Based on the current state: {state} and the goal: '{goal}'. Evaluate if the goal has been sufficiently achieved. Consider the data collected and whether it meets the requirements."
+    prompt = f"Based on the current state: {state} and the goal: '{goal}'. Evaluate if the goal has been sufficiently achieved. Consider the data collected and whether it meets the requirements. If NOT achieved, explain specifically what is missing or insufficient so the agent can take corrective action."
     start_thinking("Evaluating goal")
     try:
         response = query_llm(prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
@@ -327,13 +335,20 @@ def goal_evaluation_action(state: Dict[str, Any], model: str, api_key: Optional[
     if verbose:
         print(f"[DECISION] Evaluation decision: {response}")
     achieved = bool(response.params.get('achieved', False))  # Ensure boolean
+    evaluation_feedback = response.reasoning  # Capture the detailed feedback
     
     if achieved:
         print_retro_status("SUCCESS", "✓ Goal was achieved!")
+        return ('achieved', achieved)
     else:
+        # Store the detailed rejection reason for next iterations
         print_retro_status("INFO", "✗ Goal not yet achieved")
-    
-    return ('achieved', achieved)
+        return ('evaluation_result', {
+            'achieved': achieved,
+            'feedback': evaluation_feedback,
+            'missing_items': response.params.get('missing_items', []),
+            'suggestions': response.params.get('suggestions', [])
+        })
 
 def format_output_action(state: Dict[str, Any], model: str, api_key: Optional[str], output_format: Type[BaseModel], verbose: bool = False) -> Optional[Tuple[str, BaseModel]]:
     """Formats the final output according to the specified Pydantic model."""
@@ -616,16 +631,33 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
         if action_loop_detected:
             last_action = recent_actions[-1] if recent_actions else "unknown"
             if verbose:
+                print_retro_status("WARNING", f"Loop detected: repeating '{last_action}'")
                 print(f"[STRATEGY] Action loop detected: repeating '{last_action}' - suggesting strategy change")
             
             if last_action == "evaluate" and unused_tools:
-                strategy_hint = f"IMPORTANT: You've been stuck evaluating. Try using unused tools first: {unused_tools}. "
+                strategy_hint = f"CRITICAL: Stop evaluating! The goal is NOT achieved because you need to gather more data. Use unused tools: {unused_tools}. DO NOT use 'evaluate' again. "
             elif last_action == "evaluate" and not unused_tools:
-                strategy_hint = "IMPORTANT: You've been stuck evaluating. Try 'plan' to reconsider strategy or 'execute' with different parameters. "
+                strategy_hint = "CRITICAL: Stop evaluating! The goal is NOT achieved. You must 'plan' a new strategy or 'execute' tools with different parameters. DO NOT use 'evaluate' again until you've tried other actions. "
             elif unused_tools:
                 strategy_hint = f"IMPORTANT: Break the pattern! Try unused tools: {unused_tools} or use 'plan' to rethink approach. "
             else:
                 strategy_hint = "IMPORTANT: Break the pattern! Try 'plan' to develop new strategy or different parameters. "
+        
+        # Include evaluation feedback in prompt if available
+        evaluation_feedback = ""
+        evaluation_result = store.state.data.get('evaluation_result', {})
+        if evaluation_result and not store.state.data.get('achieved', False):
+            feedback = evaluation_result.get('feedback', '')
+            missing_items = evaluation_result.get('missing_items', [])
+            suggestions = evaluation_result.get('suggestions', [])
+            
+            if feedback or missing_items or suggestions:
+                evaluation_feedback = f"\nEVALUATOR FEEDBACK: {feedback}"
+                if missing_items:
+                    evaluation_feedback += f"\nMISSING: {missing_items}"
+                if suggestions:
+                    evaluation_feedback += f"\nSUGGESTIONS: {suggestions}"
+                evaluation_feedback += "\nACT ON THIS FEEDBACK TO IMPROVE THE RESULT.\n"
         
         prompt = (
             f"Goal: {goal}\n"
@@ -633,9 +665,11 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
             f"{progress_summary}\n"
             f"Used tools: {used_tools}\n"
             f"Unused tools: {unused_tools}\n"
+            f"{evaluation_feedback}"
             f"{strategy_hint}"
             "For 'execute' action, prefer UNUSED tools to gather different types of data. "
-            "If all tools have been used and sufficient data collected, use 'evaluate'. "
+            "If goal evaluation fails, DO NOT immediately evaluate again - try other actions first. "
+            "Only use 'evaluate' after making changes or gathering new data. "
             "Available actions: plan, execute, summarize, evaluate"
         )
         # Add current prompt to history
@@ -695,13 +729,37 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
             previous_achieved = store.state.data.get('achieved', False)
             store.dispatch(lambda state: goal_evaluation_action(state, model, api_key, tools=store.tools, conversation_history=store.conversation_history, verbose=verbose), verbose=verbose)
             
-            # If evaluation still returns False, increment failure counter
+            # Check evaluation result and get detailed feedback
             current_achieved = store.state.data.get('achieved', False)
+            evaluation_result = store.state.data.get('evaluation_result', {})
+            
             if not current_achieved and not previous_achieved:
                 consecutive_failures += 1
-                print_retro_status("WARNING", f"Evaluation failed {consecutive_failures}/{max_consecutive_failures} times")
+                
+                # Extract and show specific feedback from evaluator
+                feedback = evaluation_result.get('feedback', 'No specific feedback provided')
+                missing_items = evaluation_result.get('missing_items', [])
+                suggestions = evaluation_result.get('suggestions', [])
+                
+                # Show evaluator rejection message with specific reason
+                if consecutive_failures == 1:
+                    print_retro_status("INFO", "Evaluator rejected - working on task again")
+                    if verbose and feedback:
+                        print(f"[FEEDBACK] Evaluator says: {feedback}")
+                elif consecutive_failures <= max_consecutive_failures:
+                    print_retro_status("INFO", f"Evaluator rejected {consecutive_failures} times - continuing work")
+                    if verbose and feedback:
+                        print(f"[FEEDBACK] Evaluator says: {feedback}")
+                
                 if verbose:
                     print(f"[FAILURE] Evaluator failed {consecutive_failures}/{max_consecutive_failures} times consecutively")
+                
+                # After 2 evaluation failures, force alternative actions
+                if consecutive_failures >= 2:
+                    if verbose:
+                        print_retro_status("WARNING", "Too many evaluation failures - forcing strategy change")
+                    # Skip the next evaluate decision by manipulating recent actions
+                    recent_actions.append("evaluate")  # Add extra evaluate to trigger loop detection
                 
                 # Force completion if many consecutive failures with sufficient data
                 if consecutive_failures >= max_consecutive_failures and current_data_count >= 3:

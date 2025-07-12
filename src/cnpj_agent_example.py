@@ -176,7 +176,7 @@ if __name__ == "__main__":
     # O `output_format` garante que a saída final seja um objeto do tipo `EnrichedCnpj`.
     final_output = run_agent(
         goal=agent_goal,
-        model="openrouter/google/gemma-3-27b-it", # Modelo que o agente usará para tomar decisões
+        model="openrouter/qwen/qwen3-8b", # Modelo que o agente usará para tomar decisões
         tools=agent_tools,
         output_format=EnrichedCnpj
     )
