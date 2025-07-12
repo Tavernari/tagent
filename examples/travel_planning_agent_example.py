@@ -16,27 +16,31 @@ class FlightOption(BaseModel):
     flight_number: str
     origin: str
     destination: str
-    departure_time: str
-    arrival_time: str
+    departure_time: str  # Now includes date, e.g., '2025-08-01 08:00'
+    arrival_time: str    # Now includes date, e.g., '2025-08-01 12:00'
     price: float
+    layovers: int = Field(0, description="Number of layovers.")
+    duration: str = Field("", description="Flight duration, e.g., '4h'.")
 
 class HotelOption(BaseModel):
     name: str
     location: str
     price_per_night: float
     rating: float
+    amenities: List[str] = Field([], description="List of amenities like 'free wifi', 'pool'.")
 
 class ActivityOption(BaseModel):
     name: str
     description: str
     estimated_cost: float
+    duration: str = Field("", description="Estimated duration, e.g., '2 hours'.")
+    best_time: str = Field("", description="Best time to do the activity, e.g., 'morning'.")
 
 class TravelPlan(BaseModel):
     destination: str = Field(..., description="The planned travel destination.")
     travel_dates: str = Field(..., description="The dates for the trip (e.g., '2025-08-01 to 2025-08-07').")
     budget: float = Field(..., description="The specified budget for the trip.")
-    flights: List[FlightOption] = Field([], description="List of selected flight options.")
-    flight_search_status: str = Field("", description="Status of the flight search (e.g., 'Flights found successfully.', 'No flights found for the route.', 'No flights found within the budget.').")
+    flight_data: Dict[str, Any] = Field({'options': [], 'status': 'Not searched.'}, description="Dictionary containing flight options and search status.")
     hotels: List[HotelOption] = Field([], description="List of selected hotel options.")
     activities: List[ActivityOption] = Field([], description="List of selected activity options.")
     total_estimated_cost: float = Field(0.0, description="The total estimated cost of the entire trip.")
@@ -44,11 +48,11 @@ class TravelPlan(BaseModel):
 
 # --- 2. Fake Tool Definitions ---
 # Each function is adapted to the TAgent's Store format:
-# It receives (state, args) and returns a tuple (key_to_update, value).
+# It receives (state, args) and returns a tuple (key_to_update, value) or a list of such tuples for multiple updates.
 
-def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[List[Tuple[str, Any]]]:
     """
-    Searches for flight options based on origin, destination, dates, and budget.
+    Searches for flight options based on origin, destination, dates, and budget. Simulates real API by filtering on exact dates and adding realistic variations like layovers.
     
     Args:
         state: Current agent state.
@@ -59,7 +63,7 @@ def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional
             - budget (float): Maximum budget for flights.
             
     Returns:
-        A tuple with ('flight_options', List[FlightOption]) where flight_options are available flights.
+        A list of tuples like [('flight_options', List[FlightOption]), ('flight_search_status', str)] for multiple updates.
     """
     origin = state.get('origin')
     destination = state.get('destination')
@@ -69,60 +73,52 @@ def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional
     if not all([origin, destination, dates, budget]):
         return None
 
-    # Fake Data - Expanded and filtered by origin, destination, and budget
+    # Parse dates for realistic filtering (assume format 'YYYY-MM-DD to YYYY-MM-DD')
+    try:
+        dep_date, ret_date = [d.strip() for d in dates.split(' to ')]
+    except ValueError:
+        return [('flight_search_status', "Invalid date format. Unable to search flights.")]
+
+    # Fake Data - More realistic with dates, layovers, durations, and varied options
     all_flights = [
-        FlightOption(airline="AirLines", flight_number="AL101", origin="New York", destination="Paris", departure_time="08:00", arrival_time="12:00", price=350.00),
-        FlightOption(airline="GlobalAir", flight_number="GA205", origin="London", destination="Rome", departure_time="10:30", arrival_time="14:30", price=420.00),
-        FlightOption(airline="FlyFast", flight_number="FF300", origin="Berlin", destination="Madrid", departure_time="14:00", arrival_time="18:00", price=280.00),
-        FlightOption(airline="Oceanic", flight_number="OC400", origin="Tokyo", destination="Sydney", departure_time="09:00", arrival_time="13:00", price=900.00),
-        FlightOption(airline="StarLink", flight_number="SL501", origin="New York", destination="London", departure_time="11:00", arrival_time="15:00", price=380.00),
-        FlightOption(airline="AirLines", flight_number="AL102", origin="Paris", destination="New York", departure_time="07:00", arrival_time="11:00", price=320.00),
-        FlightOption(airline="GlobalAir", flight_number="GA206", origin="Rome", destination="London", departure_time="13:00", arrival_time="17:00", price=450.00),
-        FlightOption(airline="FlyFast", flight_number="FF301", origin="Madrid", destination="Berlin", departure_time="16:00", arrival_time="20:00", price=290.00),
-        FlightOption(airline="Oceanic", flight_number="OC401", origin="Sydney", destination="Tokyo", departure_time="10:00", arrival_time="14:00", price=950.00),
-        FlightOption(airline="StarLink", flight_number="SL502", origin="London", destination="New York", departure_time="12:00", arrival_time="16:00", price=390.00),
-        FlightOption(airline="AirLines", flight_number="AL103", origin="New York", destination="Paris", departure_time="09:30", arrival_time="13:30", price=360.00),
-        FlightOption(airline="GlobalAir", flight_number="GA207", origin="London", destination="Rome", departure_time="15:00", arrival_time="19:00", price=430.00),
-        FlightOption(airline="FlyFast", flight_number="FF302", origin="Berlin", destination="Madrid", departure_time="18:00", arrival_time="22:00", price=300.00),
-        FlightOption(airline="Oceanic", flight_number="OC402", origin="Tokyo", destination="Sydney", departure_time="11:30", arrival_time="15:30", price=910.00),
-        FlightOption(airline="StarLink", flight_number="SL503", origin="New York", destination="London", departure_time="13:30", arrival_time="17:30", price=400.00),
-        FlightOption(airline="AirLines", flight_number="AL104", origin="Paris", destination="New York", departure_time="06:00", arrival_time="10:00", price=310.00),
-        FlightOption(airline="GlobalAir", flight_number="GA208", origin="Rome", destination="London", departure_time="14:00", arrival_time="18:00", price=460.00),
-        FlightOption(airline="FlyFast", flight_number="FF303", origin="Madrid", destination="Berlin", departure_time="17:00", arrival_time="21:00", price=270.00),
-        FlightOption(airline="Oceanic", flight_number="OC403", origin="Sydney", destination="Tokyo", departure_time="12:30", arrival_time="16:30", price=930.00),
-        FlightOption(airline="StarLink", flight_number="SL504", origin="London", destination="New York", departure_time="14:30", arrival_time="18:30", price=410.00),
-        FlightOption(airline="AirLines", flight_number="AL105", origin="New York", destination="Paris", departure_time="08:30", arrival_time="12:30", price=340.00),
-        FlightOption(airline="GlobalAir", flight_number="GA209", origin="London", destination="Rome", departure_time="10:00", arrival_time="14:00", price=410.00),
-        FlightOption(airline="FlyFast", flight_number="FF304", origin="Berlin", destination="Madrid", departure_time="15:00", arrival_time="19:00", price=260.00),
-        FlightOption(airline="Oceanic", flight_number="OC404", origin="Tokyo", destination="Sydney", departure_time="09:30", arrival_time="13:30", price=890.00),
-        FlightOption(airline="StarLink", flight_number="SL505", origin="New York", destination="London", departure_time="11:30", arrival_time="15:30", price=370.00),
-        FlightOption(airline="AirLines", flight_number="AL106", origin="Paris", destination="New York", departure_time="07:30", arrival_time="11:30", price=330.00),
-        FlightOption(airline="GlobalAir", flight_number="GA210", origin="Rome", destination="London", departure_time="11:00", arrival_time="15:00", price=400.00),
-        FlightOption(airline="FlyFast", flight_number="FF305", origin="Madrid", destination="Berlin", departure_time="13:00", arrival_time="17:00", price=250.00),
-        FlightOption(airline="Oceanic", flight_number="OC405", origin="Sydney", destination="Tokyo", departure_time="08:30", arrival_time="12:30", price=880.00),
-        FlightOption(airline="StarLink", flight_number="SL506", origin="London", destination="New York", departure_time="10:30", arrival_time="14:30", price=360.00)
+        FlightOption(airline="Air France", flight_number="AF101", origin="New York", destination="Paris", departure_time=f"{dep_date} 08:00", arrival_time=f"{dep_date} 20:00", price=550.00, layovers=0, duration="12h"),
+        FlightOption(airline="Delta", flight_number="DL205", origin="London", destination="Rome", departure_time=f"{dep_date} 10:30", arrival_time=f"{dep_date} 13:00", price=220.00, layovers=0, duration="2h 30m"),
+        FlightOption(airline="Lufthansa", flight_number="LH300", origin="Berlin", destination="Madrid", departure_time=f"{dep_date} 14:00", arrival_time=f"{dep_date} 17:00", price=180.00, layovers=0, duration="3h"),
+        FlightOption(airline="Qantas", flight_number="QF400", origin="Tokyo", destination="Sydney", departure_time=f"{dep_date} 09:00", arrival_time=f"{dep_date} 19:00", price=700.00, layovers=0, duration="10h"),
+        FlightOption(airline="British Airways", flight_number="BA501", origin="New York", destination="London", departure_time=f"{dep_date} 11:00", arrival_time=f"{dep_date} 22:00", price=450.00, layovers=0, duration="11h"),
+        FlightOption(airline="Air France", flight_number="AF102", origin="Paris", destination="New York", departure_time=f"{ret_date} 07:00", arrival_time=f"{ret_date} 10:00", price=520.00, layovers=1, duration="9h (1 layover)"),
+        FlightOption(airline="Alitalia", flight_number="AZ206", origin="Rome", destination="London", departure_time=f"{ret_date} 13:00", arrival_time=f"{ret_date} 15:30", price=250.00, layovers=0, duration="2h 30m"),
+        FlightOption(airline="Iberia", flight_number="IB301", origin="Madrid", destination="Berlin", departure_time=f"{ret_date} 16:00", arrival_time=f"{ret_date} 19:00", price=190.00, layovers=0, duration="3h"),
+        FlightOption(airline="JAL", flight_number="JL401", origin="Sydney", destination="Tokyo", departure_time=f"{ret_date} 10:00", arrival_time=f"{ret_date} 18:00", price=750.00, layovers=0, duration="8h"),
+        FlightOption(airline="American Airlines", flight_number="AA502", origin="London", destination="New York", departure_time=f"{ret_date} 12:00", arrival_time=f"{ret_date} 15:00", price=460.00, layovers=1, duration="9h (1 layover)"),
+        # Add more for variety and realism, including some that might not match dates
+        FlightOption(airline="EasyJet", flight_number="EJ103", origin="London", destination="Rome", departure_time=f"2025-09-11 09:00", arrival_time=f"2025-09-11 11:30", price=150.00, layovers=0, duration="2h 30m"),
+        FlightOption(airline="Ryanair", flight_number="RY104", origin="London", destination="Rome", departure_time=f"{dep_date} 06:00", arrival_time=f"{dep_date} 08:30", price=100.00, layovers=0, duration="2h 30m"),
+        FlightOption(airline="United", flight_number="UA105", origin="New York", destination="Paris", departure_time=f"{dep_date} 18:00", arrival_time=f"{dep_date+1} 08:00", price=600.00, layovers=0, duration="14h"),  # Overnight
     ]
     
-    # Filter by origin and destination first
+    # Realistic filter: by origin, destination, and exact departure date (for outbound; simplify for return)
     route_flights = [
         f for f in all_flights 
-        if f.origin.lower() == origin.lower() and f.destination.lower() == destination.lower()
+        if f.origin.lower() == origin.lower() and f.destination.lower() == destination.lower() and dep_date in f.departure_time
     ]
     
     if not route_flights:
-        return ('flight_options', []), ('flight_search_status', f"No flights found for the route {origin} to {destination}.")
+        return ('flight_data', {'options': [], 'status': f"No flights found for the route {origin} to {destination} on {dep_date}."})
     
-    # Then filter by budget
+    # Filter by budget, simulating real affordability check
     affordable_flights = [f for f in route_flights if f.price <= budget]
     
     if not affordable_flights:
-        return ('flight_options', []), ('flight_search_status', f"No flights found within the budget of ${budget:.2f} for the route {origin} to {destination}.")
+        return ('flight_data', {'options': [], 'status': f"No flights found within the budget of ${budget:.2f} for the route {origin} to {destination} on {dep_date}."})
     
-    return ('flight_options', [f.model_dump() for f in affordable_flights]), ('flight_search_status', "Flights found successfully.")
+    # Return top 3 cheapest for realism
+    affordable_flights.sort(key=lambda x: x.price)
+    return ('flight_data', {'options': [f.model_dump() for f in affordable_flights[:3]], 'status': "Flights found successfully. Showing top 3 options."})
 
 def search_hotels_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
     """
-    Searches for hotel options based on destination, dates, budget, and preferences.
+    Searches for hotel options based on destination, dates, budget, and preferences. Calculates nights realistically from dates.
     
     Args:
         state: Current agent state.
@@ -137,46 +133,62 @@ def search_hotels_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[
     """
     destination = state.get('destination')
     dates = state.get('travel_dates')
-    budget = state.get('budget')
+    budget = state.get('budget', 0) / 7  # Approximate per night budget, assuming week-long trip for realism
     preferences = state.get('hotel_preferences', '').lower()
 
-    if not all([destination, dates, budget]):
+    if not all([destination, dates]):
         return None
 
-    # Fake Data - Filtered by budget, preferences, and destination
+    # Parse dates to calculate number of nights (for future cost calc, but here just validate)
+    try:
+        from datetime import datetime
+        dep_date, ret_date = [datetime.strptime(d.strip(), '%Y-%m-%d') for d in dates.split(' to ')]
+        num_nights = (ret_date - dep_date).days
+        if num_nights <= 0:
+            return ('hotel_options', [])
+    except ValueError:
+        num_nights = 6  # Fallback
+
+    # Fake Data - More realistic with amenities and filtered strictly
     all_hotels = [
-        HotelOption(name="Grand Plaza Paris", location="Paris Downtown", price_per_night=250.00, rating=4.5),
-        HotelOption(name="Budget Inn Paris", location="Paris Suburb", price_per_night=80.00, rating=3.0),
-        HotelOption(name="Beach Resort Paris", location="Paris Coastal Area", price_per_night=350.00, rating=4.8),
-        HotelOption(name="Rome Luxury Suites", location="Rome City Center", price_per_night=300.00, rating=4.7),
-        HotelOption(name="Rome Budget Stay", location="Rome Termini", price_per_night=70.00, rating=2.9),
-        HotelOption(name="London Central Hotel", location="London Westminster", price_per_night=280.00, rating=4.6),
-        HotelOption(name="London Budget Hostel", location="London East End", price_per_night=60.00, rating=2.5),
-        HotelOption(name="Berlin Grand Hotel", location="Berlin Mitte", price_per_night=220.00, rating=4.3),
-        HotelOption(name="Berlin Hostel", location="Berlin Kreuzberg", price_per_night=50.00, rating=2.8),
-        HotelOption(name="Madrid City Center", location="Madrid Sol", price_per_night=200.00, rating=4.2),
-        HotelOption(name="Madrid Budget Inn", location="Madrid Latina", price_per_night=45.00, rating=2.7),
-        HotelOption(name="Tokyo Imperial Hotel", location="Tokyo Chiyoda", price_per_night=400.00, rating=4.9),
-        HotelOption(name="Tokyo Capsule Hotel", location="Tokyo Shinjuku", price_per_night=30.00, rating=3.5),
-        HotelOption(name="Sydney Harbour View", location="Sydney Circular Quay", price_per_night=380.00, rating=4.8),
-        HotelOption(name="Sydney Backpackers", location="Sydney Kings Cross", price_per_night=40.00, rating=3.2)
+        HotelOption(name="Four Seasons Paris", location="Paris Champs-Élysées", price_per_night=450.00, rating=4.8, amenities=["free wifi", "pool", "spa"]),
+        HotelOption(name="Ibis Paris", location="Paris Suburb", price_per_night=90.00, rating=3.5, amenities=["free wifi", "breakfast"]),
+        HotelOption(name="Ritz Carlton Rome", location="Rome City Center", price_per_night=350.00, rating=4.7, amenities=["free wifi", "pool", "gym"]),
+        HotelOption(name="Hostel Roma", location="Rome Termini", price_per_night=50.00, rating=3.0, amenities=["free wifi"]),
+        HotelOption(name="The Savoy London", location="London Westminster", price_per_night=400.00, rating=4.9, amenities=["free wifi", "spa", "restaurant"]),
+        HotelOption(name="Premier Inn London", location="London East End", price_per_night=80.00, rating=3.8, amenities=["free wifi", "breakfast"]),
+        HotelOption(name="Hotel Adlon Berlin", location="Berlin Mitte", price_per_night=300.00, rating=4.6, amenities=["free wifi", "pool", "bar"]),
+        HotelOption(name="A&O Hostel Berlin", location="Berlin Kreuzberg", price_per_night=40.00, rating=3.2, amenities=["free wifi"]),
+        HotelOption(name="Palace Hotel Madrid", location="Madrid Sol", price_per_night=250.00, rating=4.4, amenities=["free wifi", "gym"]),
+        HotelOption(name="Motel One Madrid", location="Madrid Latina", price_per_night=70.00, rating=3.9, amenities=["free wifi"]),
+        HotelOption(name="Mandarin Oriental Tokyo", location="Tokyo Nihonbashi", price_per_night=500.00, rating=4.9, amenities=["free wifi", "spa", "pool"]),
+        HotelOption(name="Capsule Inn Tokyo", location="Tokyo Shinjuku", price_per_night=35.00, rating=3.4, amenities=["free wifi"]),
+        HotelOption(name="Shangri-La Sydney", location="Sydney Circular Quay", price_per_night=450.00, rating=4.8, amenities=["free wifi", "pool", "views"]),
+        HotelOption(name="YHA Sydney", location="Sydney Kings Cross", price_per_night=45.00, rating=3.6, amenities=["free wifi", "kitchen"]),
     ]
     
     filtered_hotels = []
     for h in all_hotels:
-        if h.location.lower().startswith(destination.lower()) and h.price_per_night <= budget:
-            if "luxury" in preferences and h.rating >= 4.0:
+        if destination.lower() in h.location.lower() and h.price_per_night <= budget:
+            if "luxury" in preferences and h.rating >= 4.5 and "spa" in h.amenities:
                 filtered_hotels.append(h)
             elif "budget" in preferences and h.price_per_night <= 100.00:
                 filtered_hotels.append(h)
-            elif not preferences: # No specific preference
+            elif "near beach" in preferences and "pool" in h.amenities:  # Simulate 'near beach' with pool
+                filtered_hotels.append(h)
+            elif not preferences:
                 filtered_hotels.append(h)
 
-    return ('hotel_options', [h.model_dump() for h in filtered_hotels])
+    if not filtered_hotels:
+        return ('hotel_options', [])  # Realistic: no matches
+
+    # Return top 2 for realism
+    filtered_hotels.sort(key=lambda x: -x.rating)  # Highest rated first
+    return ('hotel_options', [h.model_dump() for h in filtered_hotels[:2]])
 
 def search_activities_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
     """
-    Searches for activities based on destination, dates, and interests.
+    Searches for activities based on destination, dates, and interests. Adds realistic details like duration and best time.
     
     Args:
         state: Current agent state.
@@ -195,67 +207,75 @@ def search_activities_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optio
     if not all([destination, dates]):
         return None
 
-    # Fake Data - Filtered by interests and destination
+    # Fake Data - More realistic with duration and best time, filtered by interests
     all_activities = [
-        ActivityOption(name="Paris City Museum Tour", description="Explore Parisian history and art.", estimated_cost=30.00),
-        ActivityOption(name="Paris Seine River Cruise", description="Enjoy a scenic cruise on the Seine.", estimated_cost=45.00),
-        ActivityOption(name="Paris Food Tasting Tour", description="Sample traditional French cuisine.", estimated_cost=70.00),
-        ActivityOption(name="Rome Colosseum Tour", description="Discover ancient Roman history.", estimated_cost=40.00),
-        ActivityOption(name="Rome Vatican City Tour", description="Visit the Vatican Museums and St. Peter's Basilica.", estimated_cost=60.00),
-        ActivityOption(name="Rome Pasta Making Class", description="Learn to make authentic Italian pasta.", estimated_cost=80.00),
-        ActivityOption(name="London Tower Bridge Experience", description="Explore the iconic Tower Bridge.", estimated_cost=35.00),
-        ActivityOption(name="London British Museum Visit", description="Discover world history and culture.", estimated_cost=0.00),
-        ActivityOption(name="London West End Show", description="Enjoy a world-class theater performance.", estimated_cost=100.00),
-        ActivityOption(name="Berlin Wall Memorial", description="Learn about the history of the Berlin Wall.", estimated_cost=0.00),
-        ActivityOption(name="Berlin Museum Island Tour", description="Visit a complex of five world-renowned museums.", estimated_cost=25.00),
-        ActivityOption(name="Berlin Nightlife Tour", description="Experience Berlin's vibrant nightlife.", estimated_cost=50.00),
-        ActivityOption(name="Madrid Prado Museum Tour", description="Admire masterpieces of European art.", estimated_cost=20.00),
-        ActivityOption(name="Madrid Royal Palace Visit", description="Explore the official residence of the Spanish Royal Family.", estimated_cost=30.00),
-        ActivityOption(name="Madrid Tapas Tour", description="Savor traditional Spanish tapas.", estimated_cost=60.00),
-        ActivityOption(name="Tokyo Imperial Palace Gardens", description="Stroll through beautiful gardens.", estimated_cost=0.00),
-        ActivityOption(name="Tokyo Shibuya Crossing Experience", description="Witness the famous Shibuya scramble.", estimated_cost=0.00),
-        ActivityOption(name="Tokyo Robot Restaurant Show", description="Enjoy a unique and eccentric show.", estimated_cost=150.00),
-        ActivityOption(name="Sydney Opera House Tour", description="Discover the iconic Sydney Opera House.", estimated_cost=40.00),
-        ActivityOption(name="Sydney Harbour Bridge Climb", description="Climb the famous Harbour Bridge for panoramic views.", estimated_cost=200.00),
-        ActivityOption(name="Sydney Bondi Beach Surfing Lesson", description="Learn to surf at Bondi Beach.", estimated_cost=90.00)
+        ActivityOption(name="Louvre Museum Visit", description="Explore world-famous art collections.", estimated_cost=20.00, duration="3 hours", best_time="morning"),
+        ActivityOption(name="Eiffel Tower Climb", description="Ascend the iconic tower for views.", estimated_cost=25.00, duration="1 hour", best_time="evening"),
+        ActivityOption(name="French Cooking Class", description="Learn to cook classic dishes.", estimated_cost=80.00, duration="4 hours", best_time="afternoon"),
+        ActivityOption(name="Colosseum Guided Tour", description="Dive into ancient Roman history.", estimated_cost=50.00, duration="2 hours", best_time="morning"),
+        ActivityOption(name="Vatican Museums Excursion", description="See Michelangelo's masterpieces.", estimated_cost=60.00, duration="3 hours", best_time="early morning"),
+        ActivityOption(name="Italian Gelato Tasting", description="Sample authentic flavors.", estimated_cost=15.00, duration="1 hour", best_time="afternoon"),
+        ActivityOption(name="Tower of London Tour", description="Discover royal history and jewels.", estimated_cost=30.00, duration="2 hours", best_time="morning"),
+        ActivityOption(name="Thames River Cruise", description="See landmarks from the water.", estimated_cost=25.00, duration="1 hour", best_time="evening"),
+        ActivityOption(name="Pub Crawl in London", description="Experience local nightlife.", estimated_cost=40.00, duration="4 hours", best_time="evening"),
+        ActivityOption(name="Berlin Wall Bike Tour", description="Cycle along historical sites.", estimated_cost=35.00, duration="3 hours", best_time="daytime"),
+        ActivityOption(name="Pergamon Museum Visit", description="View ancient artifacts.", estimated_cost=12.00, duration="2 hours", best_time="morning"),
+        ActivityOption(name="Street Food Tour Berlin", description="Taste diverse cuisines.", estimated_cost=50.00, duration="2 hours", best_time="evening"),
+        ActivityOption(name="Retiro Park Picnic", description="Relax in Madrid's green oasis.", estimated_cost=10.00, duration="2 hours", best_time="afternoon"),
+        ActivityOption(name="Flamenco Show", description="Watch passionate Spanish dance.", estimated_cost=40.00, duration="1.5 hours", best_time="evening"),
+        ActivityOption(name="Senso-ji Temple Visit", description="Explore Tokyo's oldest temple.", estimated_cost=0.00, duration="1 hour", best_time="morning"),
+        ActivityOption(name="Mount Fuji Day Trip", description="View the iconic mountain.", estimated_cost=100.00, duration="8 hours", best_time="daytime"),
+        ActivityOption(name="Sydney Harbour Cruise", description="Sail past Opera House and Bridge.", estimated_cost=50.00, duration="2 hours", best_time="evening"),
+        ActivityOption(name="Blue Mountains Hike", description="Adventure through scenic trails.", estimated_cost=80.00, duration="6 hours", best_time="morning"),
     ]
     
     filtered_activities = []
     for a in all_activities:
         if destination.lower() in a.name.lower() or destination.lower() in a.description.lower():
-            if "museums" in interests and ("museum" in a.name.lower() or "museum" in a.description.lower()):
+            if "museums" in interests and "museum" in a.name.lower():
                 filtered_activities.append(a)
-            elif "adventure" in interests and ("adventure" in a.name.lower() or "adventure" in a.description.lower() or "climb" in a.name.lower() or "hike" in a.name.lower()):
+            elif "adventure" in interests and ("climb" in a.name.lower() or "hike" in a.name.lower() or "bike" in a.name.lower()):
                 filtered_activities.append(a)
-            elif "food" in interests and ("food" in a.name.lower() or "food" in a.description.lower() or "tasting" in a.name.lower() or "cooking" in a.name.lower()):
+            elif "food" in interests and ("food" in a.name.lower() or "tasting" in a.name.lower() or "cooking" in a.name.lower()):
                 filtered_activities.append(a)
-            elif "history" in interests and ("history" in a.name.lower() or "history" in a.description.lower() or "palace" in a.name.lower() or "colosseum" in a.name.lower() or "wall" in a.name.lower()):
+            elif "history" in interests and ("history" in a.description.lower() or "temple" in a.name.lower() or "tour" in a.name.lower()):
                 filtered_activities.append(a)
-            elif not interests: # No specific interest
+            elif not interests:
                 filtered_activities.append(a)
 
-    return ('activity_options', [a.model_dump() for a in filtered_activities])
+    if not filtered_activities:
+        return ('activity_options', [])  # Realistic: no matches
+
+    # Return up to 4 for a balanced trip
+    return ('activity_options', [a.model_dump() for a in filtered_activities[:4]])
 
 def calculate_total_cost_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
     """
-    Calculates the total estimated cost based on selected flights, hotels, and activities.
+    Calculates the total estimated cost based on selected flights, hotels, and activities. Uses realistic night calculation from dates.
     
     Args:
-        state: Current agent state (expects 'flight_options', 'hotel_options', 'activity_options' to be present).
+        state: Current agent state (expects 'flight_options', 'hotel_options', 'activity_options', 'travel_dates' to be present).
         args: Dictionary with tool arguments (none needed, uses state).
             
     Returns:
         A tuple with ('total_estimated_cost', float).
     """
+    from datetime import datetime
     total_cost = 0.0
     
-    flights = state.get('flight_options', [])
+    # Parse dates for num_nights
+    dates = state.get('travel_dates', '')
+    try:
+        dep_date, ret_date = [datetime.strptime(d.strip(), '%Y-%m-%d') for d in dates.split(' to ')]
+        num_nights = (ret_date - dep_date).days - 1  # Realistic: nights = days - 1
+    except ValueError:
+        num_nights = 6  # Fallback
+
+    flights = state.get('flight_data', {}).get('options', [])
     for f in flights:
         total_cost += f['price']
         
     hotels = state.get('hotel_options', [])
-    # Assuming a fixed number of nights for hotel cost calculation for simplicity
-    num_nights = 6 # Example: 6 nights for a 7-day trip
     for h in hotels:
         total_cost += h['price_per_night'] * num_nights
         
@@ -267,7 +287,7 @@ def calculate_total_cost_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Op
 
 def generate_itinerary_summary_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
     """
-    Generates a summary of the travel itinerary based on selected flights, hotels, and activities.
+    Generates a summary of the travel itinerary based on selected flights, hotels, and activities. Includes more details for realism.
     
     Args:
         state: Current agent state (expects 'flight_options', 'hotel_options', 'activity_options' to be present).
@@ -278,34 +298,31 @@ def generate_itinerary_summary_tool(state: Dict[str, Any], args: Dict[str, Any])
     """
     destination = state.get('destination', 'Unknown Destination')
     travel_dates = state.get('travel_dates', 'Unknown Dates')
-    flights = state.get('flight_options', [])
-    hotels = state.get('hotel_options', [])
-    activities = state.get('activity_options', [])
-    total_cost = state.get('total_estimated_cost', 0.0)
+    flight_data = state.get('flight_data', {'options': [], 'status': 'Not searched.'})
+    flights = flight_data.get('options', [])
+    flight_search_status = flight_data.get('status', 'Not searched.')
 
-    flight_search_status = state.get('flight_search_status', 'Not searched.')
-
-    summary = f"Travel Plan for {destination} from {travel_dates}:\n\n"
+    summary = f"Detailed Travel Itinerary for {destination} ({travel_dates}):\n\n"
     
-    summary += f"Flight Search Status: {flight_search_status}\n"
+    summary += f"Flight Search Status: {flight_search_status}\n\n"
 
     if flights:
-        summary += "Flights:\n"
+        summary += "Flight Details:\n"
         for f in flights:
-            summary += f"  - {f['airline']} {f['flight_number']} ({f['origin']} to {f['destination']}): {f['departure_time']} to {f['arrival_time']} (${f['price']:.2f})\n"
+            summary += f"  - {f['airline']} {f['flight_number']} from {f['origin']} to {f['destination']}: Departs {f['departure_time']}, Arrives {f['arrival_time']} (${f['price']:.2f}, {f['layovers']} layovers, Duration: {f['duration']})\n"
     
     if hotels:
-        summary += "\nHotels:\n"
+        summary += "\nAccommodation:\n"
         for h in hotels:
-            summary += f"  - {h['name']} ({h['location']}): ${h['price_per_night']:.2f}/night (Rating: {h['rating']})\n"
+            summary += f"  - {h['name']} in {h['location']}: ${h['price_per_night']:.2f}/night (Rating: {h['rating']}, Amenities: {', '.join(h['amenities'])})\n"
             
     if activities:
-        summary += "\nActivities:\n"
+        summary += "\nPlanned Activities:\n"
         for a in activities:
-            summary += f"  - {a['name']}: {a['description']} (Est. Cost: ${a['estimated_cost']:.2f})\n"
+            summary += f"  - {a['name']}: {a['description']} (Est. Cost: ${a['estimated_cost']:.2f}, Duration: {a['duration']}, Best Time: {a['best_time']})\n"
             
-    summary += f"\nTotal Estimated Cost: ${total_cost:.2f}\n"
-    summary += "\nThis plan provides a comprehensive overview of your trip, including transportation, accommodation, and leisure activities."
+    summary += f"\nTotal Estimated Cost: ${total_cost:.2f} (Includes flights, hotels for duration, and activities. Note: Additional costs like meals/transport may apply.)\n"
+    summary += "\nThis itinerary is designed for a balanced trip. Adjust based on weather or personal preferences."
     
     return ('itinerary_summary', summary)
 
@@ -316,18 +333,17 @@ if __name__ == "__main__":
     travel_destination = "Rome"
     travel_origin = "London"
     travel_dates = "2025-09-10 to 2025-09-17"
-    travel_budget = 1500.00 # Total budget for flights, hotels, and activities
+    travel_budget = 10000.00 # Adjusted for realism with more costs
     hotel_preferences = "luxury"
     activity_interests = "history, food"
 
-    # The clear and complex goal for the agent
+    # More realistic and detailed goal for the agent, simulating a user query
     agent_goal = (
-        f"Plan a trip to {travel_destination} from {travel_origin} between {travel_dates}, "
-        f"with a total budget of ${travel_budget:.2f}. "
-        f"First, find suitable flight options. Then, search for hotel options in {travel_destination} "
-        f"with a preference for '{hotel_preferences}' and within the budget. "
-        f"Next, find activities in {travel_destination} related to '{activity_interests}'. "
-        f"Finally, calculate the total estimated cost of the entire trip and generate a detailed itinerary summary."
+        f"I need help planning a realistic trip from {travel_origin} to {travel_destination} for the dates {travel_dates}, "
+        f"staying within a total budget of about ${travel_budget:.2f}. Please start by searching for affordable flights that fit the dates and budget. "
+        f"If no flights are available, note that and suggest alternatives. Then, find {hotel_preferences} hotel options in {travel_destination} that match the dates and remaining budget. "
+        f"After that, recommend activities focused on {activity_interests} that can be done during the trip. "
+        f"Finally, calculate the total cost including all elements and provide a detailed, day-by-day style itinerary summary if possible, or a general overview."
     )
 
     # Dictionary registering the available tools

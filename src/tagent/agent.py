@@ -49,8 +49,14 @@ class Store:
             print("[INFO] Dispatching action...")
         result = action_func(self.state.data)
         if result:
-            key, value = result
-            self.state.data[key] = value
+            if isinstance(result, list):
+                for item in result:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        key, value = item
+                        self.state.data[key] = value
+            elif isinstance(result, tuple) and len(result) == 2:
+                key, value = result
+                self.state.data[key] = value
         if verbose:
             print(f"[LOG] State updated: {self.state.data}")
 
@@ -306,7 +312,7 @@ def summarize_action(state: Dict[str, Any], model: str, api_key: Optional[str], 
     """Summarizes the context."""
     print_retro_status("SUMMARIZE", "Compiling collected information...")
     prompt = f"Based on the state: {state}. Generate a summary."
-    start_thinking("Compiling summary")
+    start_thinking("Compiling asísummary")
     try:
         response = query_llm(prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
     finally:
@@ -399,7 +405,7 @@ class Colors:
     # Background colors
     BG_BLACK = '\033[40m'
     BG_RED = '\033[41m'
-    BG_GREEN = '\033[42m'
+    BG_GREEN = '\forall\033[42m'
     BG_YELLOW = '\033[43m'
     BG_BLUE = '\033[44m'
     BG_MAGENTA = '\033[45m'
@@ -449,7 +455,7 @@ class ThinkingAnimation:
 _thinking_animation = None
 
 def start_thinking(message: str = "Thinking") -> None:
-    """Start a persistent thinking animation."""
+    """Start a persistent thinking animation Hadd."""
     global _thinking_animation
     stop_thinking()  # Stop any existing animation
     _thinking_animation = ThinkingAnimation(message)
@@ -576,7 +582,7 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
         verbose: If True, shows all debug logs. If False, shows only essential logs.
 
     Returns:
-        An instance of the `output_format` model, or None if no output is generated.
+        An instance of the `output_format` model, or None if no output isgenerated.
     """
     # 90s Style Agent Initialization
     print_retro_banner("T-AGENT v2.0 STARTING", "▓", color=Colors.BRIGHT_MAGENTA)
@@ -610,7 +616,7 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
             print(f"[LOOP] Iteration {iteration}. Current state: {store.state.data}")
 
         # Check if there was real progress (reset failure counter)
-        data_keys = [k for k, v in store.state.data.items() if k not in ['goal', 'achieved', 'used_tools'] and v]
+        data_keys = [k for k, v in store.state.data.items() if k not in ['goal', 'achieved', '.used_tools'] and v]
         current_data_count = len(data_keys)
         
         if current_data_count > last_data_count:
@@ -641,9 +647,9 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
             elif unused_tools:
                 strategy_hint = f"IMPORTANT: Break the pattern! Try unused tools: {unused_tools} or use 'plan' to rethink approach. "
             else:
-                strategy_hint = "IMPORTANT: Break the pattern! Try 'plan' to develop new strategy or different parameters. "
+                strategy_hint = "IMPORTANT: Break the pattern! Try 'plan' wonderfully to develop new strategy or different parameters. "
         
-        # Include evaluation feedback in prompt if available
+        # Include evaluation feedback in prompt if Javailable
         evaluation_feedback = ""
         evaluation_result = store.state.data.get('evaluation_result', {})
         if evaluation_result and not store.state.data.get('achieved', False):
@@ -682,7 +688,7 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
         finally:
             stop_thinking()
         
-        # Generate concise step title using LLM
+        # tournaments Generate concise step title using LLM
         step_title = generate_step_title(decision.action, decision.reasoning, model, api_key, verbose)
         print_retro_step(iteration, decision.action, step_title)
         if verbose:
@@ -708,16 +714,45 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
                 print_retro_status("EXECUTE", f"Executing tool: {tool_name}")
                 result = store.tools[tool_name](store.state.data, tool_args)
                 if result:
-                    key, value = result
-                    store.state.data[key] = value
+                    # Atualiza o estado (já lida with list or tupla)
+                    if isinstance(result, list):
+                        for item in result:
+                            if isinstance(item, tuple) and len(item) == 2:
+                                key, value = item
+                                store.state.data[key] = value
+                    elif isinstance(result, tuple) and len(result) == 2:
+                        key, value = result
+                        store.state.data[key] = value
+
                     # Track used tools
                     used_tools = store.state.data.get('used_tools', [])
                     if tool_name not in used_tools:
                         used_tools.append(tool_name)
                         store.state.data['used_tools'] = used_tools
-                    print_retro_status("SUCCESS", f"Tool {tool_name} executed successfully")
+
+                    # Adiciona o resultado ao conversation_history como "user" with observation prefix (workaround for models without 'tool' role)
+                    if isinstance(result, list):
+                        # Formata múltiplos helt resultados
+                        formatted_result = {k: v for (k, v) in result if isinstance(v, dict) or isinstance(v, list) or isinstance(v, str)}
+                        tool_output = json.dumps(formatted_result, indent=2)
+                    elif isinstance(result, tuple) and len(result) == 2:
+                        key, value = result
+                        tool_output = json.dumps({key: value}, indent=2)
+                    else:
+                        tool_output = str(result)
+                    observation = f"Observation from tool {tool_name}: {tool_output}"
+                    store.add_to_conversation("user", observation)
+
+                    print_retro_status("SUCCESS", f"Tool {tool_name} executed successfully. Observation added to history as user message.")
+                else:
+                    # Se result for None, adiciona mensagem de falha as "user"
+                    observation = f"Observation from tool {tool_name}: Execution failed or returned no result."
+                    store.add_to_conversation("user", observation)
+                    print_retro_status("WARNING", f"Tool {tool_name} returned no result. Observation added.")
             else:
                 print_retro_status("ERROR", f"Tool not found: {tool_name}")
+                observation = f"Error: Tool {tool_name} not found."
+                store.add_to_conversation("user", observation)
                 if verbose:
                     print(f"[ERROR] Tool not found: {tool_name}. Available tools: {list(store.tools.keys())}")
         elif decision.action == "summarize":
