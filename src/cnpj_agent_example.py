@@ -42,7 +42,6 @@ def busca_geral_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tu
     cnpj = args.get('cnpj')
     if not cnpj:
         return None
-    print(f"[TOOL] Executando busca_geral_tool para o CNPJ: {cnpj}")
     
     # Dados Fakes
     dados = {
@@ -77,7 +76,6 @@ def buscar_instagram_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Option
     cnpj = args.get('cnpj')
     if not cnpj:
         return None
-    print(f"[TOOL] Executando buscar_instagram_tool para o CNPJ: {cnpj}")
 
     # Dados Fakes
     perfil_ig = {
@@ -111,7 +109,6 @@ def buscar_facebook_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optiona
     cnpj = args.get('cnpj')
     if not cnpj:
         return None
-    print(f"[TOOL] Executando buscar_facebook_tool para o CNPJ: {cnpj}")
 
     # Dados Fakes
     perfil_fb = {
@@ -143,7 +140,6 @@ def buscar_telefone_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optiona
     cnpj = args.get('cnpj')
     if not cnpj:
         return None
-    print(f"[TOOL] Executando buscar_telefone_tool para o CNPJ: {cnpj}")
 
     # Dados Fakes
     telefones = [
@@ -180,7 +176,7 @@ if __name__ == "__main__":
     # O `output_format` garante que a saída final seja um objeto do tipo `EnrichedCnpj`.
     final_output = run_agent(
         goal=agent_goal,
-        model="ollama/gemma3:27b", # Modelo que o agente usará para tomar decisões
+        model="openrouter/google/gemma-3-27b-it", # Modelo que o agente usará para tomar decisões
         tools=agent_tools,
         output_format=EnrichedCnpj
     )

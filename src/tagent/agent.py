@@ -425,7 +425,7 @@ class ThinkingAnimation:
         i = 0
         while self.running:
             dots = "." * ((i % 4) + 1)
-            sys.stdout.write(f"\r{Colors.CYAN}🤔 {self.message}{dots:<4}{Colors.RESET}")
+            sys.stdout.write(f"\r{Colors.CYAN}[*] {self.message}{dots:<4}{Colors.RESET}")
             sys.stdout.flush()
             time.sleep(0.25)
             i += 1
@@ -459,8 +459,31 @@ def print_retro_banner(text: str, char: str = "=", width: int = 60, color: str =
     print(f"{char}{padded_text}{char}")
     print(f"{border}{Colors.RESET}")
 
-def print_retro_step(step_num: int, action: str, description: str) -> None:
-    """Prints a retro-style step indicator with colors."""
+def generate_step_title(action: str, reasoning: str, model: str, api_key: Optional[str], verbose: bool = False) -> str:
+    """Generate a concise step title using LLM with token limit for speed/cost."""
+    prompt = f"Create a 3-5 word title for this action: {action}. Context: {reasoning[:100]}. Be concise and descriptive."
+    
+    try:
+        # Use a fast, cheap model with very low token limit
+        response = litellm.completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a concise title generator. Respond with ONLY the title, 3-5 words maximum."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=10,  # Very low token limit for speed/cost
+            temperature=0.0,
+            api_key=api_key
+        )
+        title = response.choices[0].message.content.strip()
+        return title if title else f"{action.capitalize()} Operation"
+    except Exception as e:
+        if verbose:
+            print(f"[DEBUG] Title generation failed: {e}")
+        return f"{action.capitalize()} Operation"
+
+def print_retro_step(step_num: int, action: str, title: str) -> None:
+    """Prints a minimalist step indicator with dynamic ASCII art."""
     action_colors = {
         "EXECUTE": Colors.BRIGHT_GREEN,
         "PLAN": Colors.BRIGHT_YELLOW,
@@ -469,39 +492,49 @@ def print_retro_step(step_num: int, action: str, description: str) -> None:
     }
     action_color = action_colors.get(action.upper(), Colors.WHITE)
     
-    print(f"\n{Colors.BRIGHT_WHITE}>>> STEP [{step_num:02d}] | {action_color}ACTION: {action.upper()}{Colors.RESET}")
-    print(f"{Colors.DIM}>>> {description}{Colors.RESET}")
-    print(f"{Colors.BRIGHT_BLACK}>>> {'─' * 50}{Colors.RESET}")
+    # Calculate dynamic width based on content
+    step_text = f"STEP {step_num:02d}: {action.upper()}"
+    max_width = max(len(step_text), len(title)) + 2  # Add padding
+    border_width = max_width + 4
+    
+    # Dynamic ASCII art step indicator
+    top_border = f"+{'-' * (border_width - 2)}+"
+    bottom_border = f"+{'-' * (border_width - 2)}+"
+    
+    print(f"\n{Colors.BRIGHT_WHITE}{top_border}{Colors.RESET}")
+    print(f"{Colors.BRIGHT_WHITE}| {action_color}{step_text:<{max_width}}{Colors.BRIGHT_WHITE} |{Colors.RESET}")
+    print(f"{Colors.BRIGHT_WHITE}| {Colors.DIM}{title:<{max_width}}{Colors.RESET}{Colors.BRIGHT_WHITE} |{Colors.RESET}")
+    print(f"{Colors.BRIGHT_WHITE}{bottom_border}{Colors.RESET}")
 
 def print_retro_status(status: str, details: str = "") -> None:
-    """Prints retro-style status messages with colors."""
+    """Prints retro-style status messages with colors and ASCII art."""
     timestamp = f"[{__import__('time').strftime('%H:%M:%S')}]"
     
     if status == "SUCCESS":
-        print(f"\n{Colors.BRIGHT_GREEN}✓ {timestamp} *** {status} *** {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_GREEN}[+] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "ERROR":
-        print(f"\n{Colors.BRIGHT_RED}✗ {timestamp} !!! {status} !!! {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_RED}[!] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "WARNING":
-        print(f"\n{Colors.BRIGHT_YELLOW}⚠ {timestamp} --- {status} --- {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_YELLOW}[~] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "THINKING":
-        print(f"\n{Colors.CYAN}🤔 {timestamp} ... {status} ... {details}{Colors.RESET}")
+        print(f"\n{Colors.CYAN}[*] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "EXECUTE":
-        print(f"\n{Colors.BRIGHT_GREEN}⚡ {timestamp} >>> {status} >>> {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_GREEN}[>] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "PLAN":
-        print(f"\n{Colors.BRIGHT_YELLOW}📋 {timestamp} >>> {status} >>> {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_YELLOW}[#] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "EVALUATE":
-        print(f"\n{Colors.BRIGHT_MAGENTA}🔍 {timestamp} >>> {status} >>> {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_MAGENTA}[?] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "SUMMARIZE":
-        print(f"\n{Colors.BRIGHT_BLUE}📄 {timestamp} >>> {status} >>> {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_BLUE}[=] {timestamp} {status}: {details}{Colors.RESET}")
     elif status == "FORMAT":
-        print(f"\n{Colors.BRIGHT_CYAN}📦 {timestamp} >>> {status} >>> {details}{Colors.RESET}")
+        print(f"\n{Colors.BRIGHT_CYAN}[@] {timestamp} {status}: {details}{Colors.RESET}")
     else:
-        print(f"\n{Colors.WHITE}• {timestamp} ... {status} ... {details}{Colors.RESET}")
+        print(f"\n{Colors.WHITE}[-] {timestamp} {status}: {details}{Colors.RESET}")
 
 def print_retro_progress_bar(current: int, total: int, width: int = 30) -> None:
     """Prints a retro ASCII progress bar with colors."""
     filled = int(width * current / total)
-    bar = f"{Colors.BRIGHT_GREEN}{'█' * filled}{Colors.DIM}{'░' * (width - filled)}{Colors.RESET}"
+    bar = f"{Colors.BRIGHT_GREEN}{'#' * filled}{Colors.DIM}{'-' * (width - filled)}{Colors.RESET}"
     percentage = int(100 * current / total)
     
     if percentage < 30:
@@ -582,7 +615,6 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
         
         if action_loop_detected:
             last_action = recent_actions[-1] if recent_actions else "unknown"
-            print_retro_status("WARNING", f"Loop detected: repeating '{last_action}'")
             if verbose:
                 print(f"[STRATEGY] Action loop detected: repeating '{last_action}' - suggesting strategy change")
             
@@ -616,7 +648,9 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
         finally:
             stop_thinking()
         
-        print_retro_step(iteration, decision.action, decision.reasoning[:50] + "..." if len(decision.reasoning) > 50 else decision.reasoning)
+        # Generate concise step title using LLM
+        step_title = generate_step_title(decision.action, decision.reasoning, model, api_key, verbose)
+        print_retro_step(iteration, decision.action, step_title)
         if verbose:
             print(f"[DECISION] LLM decided: {decision}")
         
@@ -638,8 +672,6 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
             tool_args = decision.params.get('args', {})
             if tool_name and tool_name in store.tools:
                 print_retro_status("EXECUTE", f"Executing tool: {tool_name}")
-                if verbose:
-                    print(f"[INFO] Calling tool: {tool_name} with args: {tool_args}")
                 result = store.tools[tool_name](store.state.data, tool_args)
                 if result:
                     key, value = result
@@ -650,8 +682,6 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
                         used_tools.append(tool_name)
                         store.state.data['used_tools'] = used_tools
                     print_retro_status("SUCCESS", f"Tool {tool_name} executed successfully")
-                    if verbose:
-                        print(f"[LOG] Execute updated: {store.state.data}")
             else:
                 print_retro_status("ERROR", f"Tool not found: {tool_name}")
                 if verbose:
