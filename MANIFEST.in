@@ -1,0 +1,29 @@
+# Include documentation
+include README.md
+include LICENSE
+include CLAUDE.md
+include CLI_SETUP.md
+
+# Include requirements files
+include requirements.txt
+include requirements-dev.txt
+
+# Include configuration files
+include pyproject.toml
+include Makefile
+
+# Include examples
+recursive-include examples *.py *.gif *.tape
+
+# Include source documentation
+recursive-include src/tagent *.md
+
+# Exclude build artifacts and cache
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude *.egg-info
+global-exclude .pytest_cache
+global-exclude .coverage
+global-exclude .venv
+global-exclude dist
+global-exclude build

@@ -27,8 +27,8 @@ TAgent is a production-ready framework for creating AI agents with modular, reus
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tagent2.git
-cd tagent2
+git clone https://github.com/Tavernari/tagent.git
+cd tagent
 
 # One-command setup (creates venv, installs everything)
 make clean-install
@@ -246,8 +246,8 @@ make cli-demo  # Creates examples/tagent_cli_demo.gif
 
 ### Development Setup
 ```bash
-git clone https://github.com/yourusername/tagent2.git
-cd tagent2
+git clone https://github.com/Tavernari/tagent.git
+cd tagent
 make clean-install
 source .venv/bin/activate
 make test
@@ -274,4 +274,4 @@ If TAgent helps you build amazing AI agents, please give it a ⭐!
 
 **Built with ❤️ for the AI community**
 
-[🐛 Report Bug](https://github.com/yourusername/tagent2/issues) | [✨ Request Feature](https://github.com/yourusername/tagent2/issues) | [📖 Documentation](https://github.com/yourusername/tagent2/wiki)
+[🐛 Report Bug](https://github.com/Tavernari/tagent/issues) | [✨ Request Feature](https://github.com/Tavernari/tagent2/issues)
