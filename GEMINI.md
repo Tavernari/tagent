@@ -1,0 +1,1 @@
+Sempre escreva o código e comentários em inglês técnico.
