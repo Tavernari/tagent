@@ -8,6 +8,8 @@
 
 TAgent is a production-ready framework for creating AI agents with modular, reusable tools. It features automatic tool discovery, dynamic schema loading, and a powerful CLI for rapid development and deployment.
 
+**Built on [LiteLLM](https://github.com/BerriAI/litellm)** - Universal LLM API for seamless integration with 100+ language models including OpenAI, Anthropic, Azure, Google, and local models.
+
 ## ✨ Key Features
 
 - 🔍 **Automatic Tool Discovery** - Finds and loads `tagent.tools.py` files automatically
@@ -98,7 +100,7 @@ output_schema = ResearchReport
 ```bash
 tagent "Research the latest trends in AI and create a comprehensive report" \
   --search-dir myproject \
-  --model openrouter/gpt-4 \
+  --model openrouter/ollama/gemma3 \
   --verbose
 ```
 
@@ -116,7 +118,7 @@ tagent "Plan a 7-day trip to Tokyo with cultural activities and budget $3000" \
 # Business intelligence and product recommendations
 tagent "Analyze customer data and suggest product improvements" \
   --search-dir examples/ecommerce \
-  --model openrouter/claude-3-sonnet
+  --model openrouter/ollama/gemma3
 ```
 
 ### Custom Research
@@ -160,7 +162,7 @@ TAgent Framework
 │   ├── Function signature validation
 │   └── Dynamic imports
 ├── 🤖 Intelligent Agent Core
-│   ├── LLM-powered decision making
+│   ├── LLM-powered decision making (via LiteLLM)
 │   ├── Adaptive planning
 │   ├── Tool execution
 │   └── Goal evaluation
@@ -173,6 +175,12 @@ TAgent Framework
     ├── Rich terminal UI
     └── Error handling
 ```
+
+### 🔧 Core Dependencies
+
+- **[LiteLLM](https://github.com/BerriAI/litellm)** - Universal LLM integration supporting 100+ models
+- **Pydantic** - Type-safe data validation and schemas
+- **Rich** - Beautiful terminal UI and progress indicators
 
 ## 📊 Built-in Tools
 
@@ -194,10 +202,12 @@ TAgent Framework
 ### Custom Models
 ```bash
 # Use different LLM providers
-tagent "goal" --model openrouter/gpt-4
-tagent "goal" --model anthropic/claude-3-sonnet
-tagent "goal" --model openai/gpt-3.5-turbo
+tagent "goal" --model openrouter/google/gemma3
+tagent "goal" --model openrouter/ollama/gemma3
+tagent "goal" --model openrouter/openai/04-mini
 ```
+
+For a complete list of supported models and integrations, please visit the [LiteLLM Provider Documentation](https://docs.litellm.ai/docs/providers).
 
 ### Multiple Tool Directories
 ```bash
