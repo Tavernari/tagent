@@ -129,13 +129,13 @@ Para nova versão:
 1. **Atualizar versão** em `pyproject.toml`:
    ```toml
    [project]
-   version = "0.2.0"  # Siga semantic versioning
+   version = "0.2.2"  # Siga semantic versioning
    ```
 
 2. **Commit e tag**:
    ```bash
-   git commit -m "Bump version to 0.2.0"
-   git tag v0.2.0
+   git commit -m "Bump version to 0.2.2"
+   git tag v0.2.2
    git push origin main --tags
    ```
 
