@@ -121,8 +121,8 @@ def detect_action_loop(recent_actions: List[str], max_recent: int = 3) -> bool:
     if len(recent_actions) < 2:  # Check even for 2 consecutive actions
         return False
 
-    # Check if last 2+ actions are the same (especially for evaluate)
-    if len(recent_actions) >= 2 and recent_actions[-1] == recent_actions[-2]:
+    # NOVO: Detectar loops de 'evaluate' mais cedo (mesmo com 2 repetições)
+    if recent_actions[-1] == "evaluate" and recent_actions[-2] == "evaluate":
         return True
 
     # Original check for 3+ actions
@@ -593,6 +593,17 @@ def goal_evaluation_action(
                     "missing_items": response.params.get("missing_items", []),
                     "suggestions": response.params.get("suggestions", []),
                 }
+
+                # NOVO: Adicionar observação ao histórico imediatamente após falha
+                missing_str = ", ".join(response.params.get("missing_items", []))
+                suggestions_str = ", ".join(response.params.get("suggestions", []))
+                observation = (
+                    f"Observation from evaluate: Goal NOT achieved. "
+                    f"Feedback: {evaluation_feedback}. Missing: {missing_str}. Suggestions: {suggestions_str}. "
+                    "MUST plan or execute next to address this."
+                )
+                store.add_to_conversation("user", observation)  # Tratar como "user" para guiar LLM
+
                 return ("evaluation_result", evaluation_dict)
         else:
             if verbose:
@@ -936,7 +947,7 @@ def run_agent(
     
     # Step counting and evaluator tracking
     evaluation_rejections = 0
-    max_evaluation_rejections = 3
+    max_evaluation_rejections = 2  # NOVO: Reduzir para 2 para intervir mais cedo
 
     # Register tools if provided
     if tools:
@@ -988,6 +999,12 @@ def run_agent(
         used_tools = store.state.data.get("used_tools", [])
         unused_tools = [t for t in store.tools.keys() if t not in used_tools]
 
+        # NOVO: Verificar se a última ação foi 'evaluate' falho
+        last_action_was_failed_evaluate = (
+            recent_actions and recent_actions[-1] == "evaluate"
+            and not store.state.data.get("achieved", False)
+        )
+
         # Detect action loop and adjust strategy
         action_loop_detected = detect_action_loop(recent_actions, max_recent_actions)
         strategy_hint = ""
@@ -1038,6 +1055,15 @@ def run_agent(
             else:
                 step_warning = f"⚠️ {remaining_steps} steps left. Be efficient. "
         
+        # NOVO: Adicionar instrução forte ao prompt para evitar evaluate após falha
+        avoid_evaluate_hint = ""
+        if last_action_was_failed_evaluate:
+            avoid_evaluate_hint = (
+                "CRITICAL: The last evaluation failed. DO NOT choose 'evaluate' again! "
+                "You MUST choose 'plan' to rethink strategy based on feedback, or 'execute' to gather more data. "
+                "Address missing items and suggestions from the evaluator."
+            )
+
         prompt = (
             f"Goal: {goal}\n"
             f"Current state: {store.state.data}\n"
@@ -1047,6 +1073,7 @@ def run_agent(
             f"Unused tools: {unused_tools}\n"
             f"{evaluation_feedback}"
             f"{strategy_hint}"
+            f"{avoid_evaluate_hint}"  # NOVO: Instrução forte
             "For 'execute' action, prefer UNUSED tools to gather different types of data. "
             "If goal evaluation fails, DO NOT immediately evaluate again - try other actions first. "
             "Only use 'evaluate' after making changes or gathering new data. "
@@ -1081,6 +1108,14 @@ def run_agent(
         recent_actions.append(decision.action)
         if len(recent_actions) > max_recent_actions:
             recent_actions.pop(0)  # Keep only the latest actions
+
+        # NOVO: Forçar ação se for 'evaluate' após falha anterior
+        if decision.action == "evaluate" and last_action_was_failed_evaluate:
+            print_retro_status("WARNING", "Preventing evaluate loop - forcing 'plan' instead")
+            decision.action = "plan"  # Forçar 'plan' para refazer o plano
+            decision.reasoning = "Forced plan due to evaluate loop prevention"
+            # Adicionar ao histórico como observação
+            store.add_to_conversation("user", "Observation: Evaluate loop detected. Forcing plan to address evaluator feedback.")
 
         # Add assistant response to history
         store.add_assistant_response(decision)
@@ -1250,10 +1285,14 @@ def run_agent(
                         "WARNING",
                         f"Evaluator rejected {evaluation_rejections} times - preventing evaluation loops",
                     )
-                    # Force multiple "evaluate" actions to trigger stronger loop detection
-                    recent_actions.extend(["evaluate", "evaluate", "evaluate"])
-                    if verbose:
-                        print(f"[ANTI-LOOP] Added multiple evaluate actions to prevent recursion")
+                    # NOVO: Forçar plan_action imediatamente
+                    store.dispatch(
+                        lambda state: plan_action(
+                            state, model, api_key, tools=store.tools, conversation_history=store.conversation_history, verbose=verbose
+                        ),
+                        verbose=verbose,
+                    )
+                    recent_actions.append("plan")  # Atualizar para quebrar loop
                 
                 # After 2 evaluation failures, force alternative actions
                 if consecutive_failures >= 2:
@@ -1400,7 +1439,9 @@ def run_agent(
                         return {
                             "result": summary_result,
                             "conversation_history": store.conversation_history,
-                            "chat_summary": format_conversation_as_chat(store.conversation_history),
+                            "chat_summary": format_conversation_as_chat(
+                                store.conversation_history
+                            ),
                             "status": "completed_with_summary_fallback",
                             "iterations_used": iteration,
                             "max_iterations": max_iterations,
