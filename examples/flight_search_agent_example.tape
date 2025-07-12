@@ -72,7 +72,6 @@ Set WindowBarSize 50
 Set Padding 20
 Set LetterSpacing 0.1
 Set LineHeight 1.5
-Set LoopOffset 50%
 
 Type "python examples/flight_search_agent_example.py" Sleep 500ms  Enter
 
