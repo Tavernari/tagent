@@ -59,11 +59,21 @@ Output ./examples/flight_search_agent_example.gif
 
 Require echo
 
-Set Shell "bash"
-Set FontSize 32
+Set TypingSpeed 75ms
+Set Shell "zsh"
+Set FontSize 12
 Set Width 1200
 Set Height 600
+Set MarginFill "#000000"
+Set Margin 10
+Set BorderRadius 10
+Set WindowBar "Colorful"
+Set WindowBarSize 50
+Set Padding 20
+Set LetterSpacing 0.1
+Set LineHeight 1.5
+Set LoopOffset 50%
 
 Type "python examples/flight_search_agent_example.py" Sleep 500ms  Enter
 
-Sleep 60s
+Sleep 300s

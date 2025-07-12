@@ -705,7 +705,7 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
         An instance of the `output_format` model, or None if no output isgenerated.
     """
     # 90s Style Agent Initialization
-    print_retro_banner("T-AGENT v2.0 STARTING", "▓", color=Colors.BRIGHT_MAGENTA)
+    print_retro_banner("T-AGENT v0.0.1 STARTING", "▓", color=Colors.BRIGHT_MAGENTA)
     print_retro_status("INIT", f"Goal: {goal[:40]}...")
     print_retro_status("CONFIG", f"Model: {model} | Max Iterations: {max_iterations}")
     
