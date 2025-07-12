@@ -54,7 +54,7 @@ class Store:
                     if isinstance(item, tuple) and len(item) == 2:
                         key, value = item
                         self.state.data[key] = value
-            elif isinstance(result, tuple) and len(result) == 2:
+            elif isinstance(result, tuple) and len(result) == 2:  # Correção: len(result) em vez de len(item)
                 key, value = result
                 self.state.data[key] = value
         if verbose:
@@ -279,7 +279,7 @@ def query_llm_for_model(prompt: str, model: str, output_model: Type[BaseModel], 
 # Note: Some actions use query_llm for intelligent decisions.
 
 def plan_action(state: Dict[str, Any], model: str, api_key: Optional[str], tools: Optional[Dict[str, Callable]] = None, conversation_history: Optional[List[Dict[str, str]]] = None, verbose: bool = False) -> Optional[Tuple[str, BaseModel]]:
-    """Generates a plan via LLM structured output."""
+    """Generates a plan via LLM structured output, adapting to evaluator feedback."""
     print_retro_status("PLAN", "Analyzing current situation...")
     goal = state.get('goal', '')
     used_tools = state.get('used_tools', [])
@@ -288,73 +288,171 @@ def plan_action(state: Dict[str, Any], model: str, api_key: Optional[str], tools
     
     print_retro_status("PLAN", f"Tools used: {len(used_tools)}, Unused: {len(unused_tools)}")
     
+    # Extrair feedback para adaptar o prompt
+    evaluation_result = state.get('evaluation_result', {})
+    feedback = evaluation_result.get('feedback', '')
+    missing_items = evaluation_result.get('missing_items', [])
+    suggestions = evaluation_result.get('suggestions', [])
+    
+    feedback_str = ""
+    if feedback or missing_items or suggestions:
+        feedback_str = (
+            f"\nPrevious Evaluator Feedback: {feedback}\n"
+            f"Missing Items: {missing_items}\n"
+            f"Suggestions: {suggestions}\n"
+            "Address this feedback in your new plan. Incorporate suggestions, focus on missing items, and use unused tools where appropriate."
+        )
+    
     prompt = (
         f"Goal: {goal}\n"
         f"Current progress: {state}\n"
         f"Used tools: {used_tools}\n"
         f"Unused tools: {unused_tools}\n"
+        f"{feedback_str}\n"
         "The current approach may not be working. Generate a new strategic plan. "
         "Consider: 1) What data is still missing? 2) What tools haven't been tried? "
-        "3) What alternative approaches could work? 4) Should we try different parameters?"
+        "3) What alternative approaches could work? 4) Should we try different parameters? "
+        "Output a plan as params (e.g., {'steps': ['step1', 'step2'], 'focus_tools': ['tool1']})."
     )
     start_thinking("Generating strategic plan")
     try:
         response = query_llm(prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
+        # Validação: Forçar action='plan' se errado
+        if response.action != "plan":
+            if verbose:
+                print(f"[WARNING] Invalid action in plan: {response.action}. Retrying with forced plan.")
+            forced_prompt = prompt + "\nMUST use action='plan' and provide params with a strategic plan."
+            response = query_llm(forced_prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
+        if response.action == "plan":
+            # Usar params diretamente (ex: {'steps': [...], ...})
+            plan_params = response.params
+            print_retro_status("SUCCESS", "Strategic plan generated")
+            
+            # Show plan feedback in non-verbose mode
+            if not verbose and response.reasoning:
+                print_feedback_dimmed("PLAN_FEEDBACK", response.reasoning)
+            
+            return ('plan', plan_params)  # Retorna tupla para dispatch atualizar state['plan']
+        else:
+            if verbose:
+                print("[ERROR] Failed to get valid 'plan' response after retry.")
+            return None
     finally:
         stop_thinking()
-    if response.action == "plan":
-        print_retro_status("SUCCESS", "Strategic plan generated")
-        return ('plan', response.params)
     return None
 
 
 def summarize_action(state: Dict[str, Any], model: str, api_key: Optional[str], tools: Optional[Dict[str, Callable]] = None, conversation_history: Optional[List[Dict[str, str]]] = None, verbose: bool = False) -> Optional[Tuple[str, BaseModel]]:
-    """Summarizes the context."""
+    """Summarizes the context, adapting to evaluator feedback."""
     print_retro_status("SUMMARIZE", "Compiling collected information...")
-    prompt = f"Based on the state: {state}. Generate a summary."
-    start_thinking("Compiling asísummary")
+    
+    # Extrair feedback se disponível (para adaptar o prompt)
+    evaluation_result = state.get('evaluation_result', {})
+    feedback = evaluation_result.get('feedback', '')
+    missing_items = evaluation_result.get('missing_items', [])
+    suggestions = evaluation_result.get('suggestions', [])
+    
+    feedback_str = ""
+    if feedback or missing_items or suggestions:
+        feedback_str = f"\nPrevious Evaluator Feedback: {feedback}\nMissing: {missing_items}\nSuggestions: {suggestions}\nIncorporate this feedback into the summary. Ensure all suggestions are addressed."
+    
+    prompt = (
+        f"Based on the current state: {state}. Generate a detailed summary that fulfills the goal.{feedback_str}\n"
+        "Include calculations (e.g., total estimated cost based on stock and prices), order predictions, and analysis. Make it comprehensive."
+    )
+    start_thinking("Compiling summary")
     try:
         response = query_llm(prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
+        if response.action != "summarize":  # Validação: Forçar ou retry se action errada
+            if verbose:
+                print(f"[WARNING] Invalid action in summarize: {response.action}. Retrying with forced summarize.")
+            # Retry com prompt forçado
+            forced_prompt = prompt + "\nMUST use action='summarize'."
+            response = query_llm(forced_prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
+        if response.action == "summarize":
+            # Usar params se disponível, senão reasoning
+            summary_content = response.params.get('content') or response.reasoning
+            summary = {"content": summary_content, "calculated_from_feedback": bool(feedback_str)}  # Adicionar meta para track
+            print_retro_status("SUCCESS", "Summary generated successfully")
+            
+            # Show summary feedback in non-verbose mode
+            if not verbose and response.reasoning:
+                print_feedback_dimmed("FEEDBACK", response.reasoning)
+            
+            return ('summary', summary)
     finally:
         stop_thinking()
-    if verbose:
-        print(f"[DECISION] Summarize decision: {response}")
-    if response.action == "summarize":
-        summary = {"content": response.reasoning}  # Use reasoning as the basis for the summary
-        print_retro_status("SUCCESS", "Summary generated successfully")
-        return ('summary', summary)
     return None
 
 def goal_evaluation_action(state: Dict[str, Any], model: str, api_key: Optional[str], tools: Optional[Dict[str, Callable]] = None, conversation_history: Optional[List[Dict[str, str]]] = None, verbose: bool = False) -> Optional[Tuple[str, BaseModel]]:
-    """Evaluates if the goal has been achieved via structured output."""
+    """Evaluates if the goal has been achieved via structured output, considering previous feedback."""
     print_retro_status("EVALUATE", "Checking if goal was achieved...")
     goal = state.get('goal', '')
     data_items = [k for k, v in state.items() if k not in ['goal', 'achieved', 'used_tools'] and v]
     print_retro_status("EVALUATE", f"Analyzing {len(data_items)} collected data items")
     
-    prompt = f"Based on the current state: {state} and the goal: '{goal}'. Evaluate if the goal has been sufficiently achieved. Consider the data collected and whether it meets the requirements. If NOT achieved, explain specifically what is missing or insufficient so the agent can take corrective action."
+    # Extrair feedback anterior para contextualizar (evita avaliações inconsistentes)
+    evaluation_result = state.get('evaluation_result', {})
+    previous_feedback = evaluation_result.get('feedback', '')
+    previous_missing = evaluation_result.get('missing_items', [])
+    
+    feedback_str = ""
+    if previous_feedback or previous_missing:
+        feedback_str = (
+            f"\nPrevious Evaluation: {previous_feedback}\n"
+            f"Previously Missing: {previous_missing}\n"
+            "Consider if these have been addressed in the current state. Be consistent with past evaluations."
+        )
+    
+    prompt = (
+        f"Based on the current state: {state} and the goal: '{goal}'.{feedback_str}\n"
+        "Evaluate if the goal has been sufficiently achieved. Consider the data collected and whether it meets the requirements. "
+        "If NOT achieved, explain specifically what is missing or insufficient in 'reasoning', and ALWAYS include 'missing_items' (list of strings) and 'suggestions' (list of at least 2 specific actions) in params so the agent can take corrective action."
+    )
     start_thinking("Evaluating goal")
     try:
         response = query_llm(prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
+        # Validação: Forçar action='evaluate' se errado
+        if response.action != "evaluate":
+            if verbose:
+                print(f"[WARNING] Invalid action in evaluate: {response.action}. Retrying with forced evaluate.")
+            forced_prompt = prompt + "\nMUST use action='evaluate' and provide params with 'achieved' (bool), 'missing_items', 'suggestions' if not achieved."
+            response = query_llm(forced_prompt, model, api_key, tools=tools, conversation_history=conversation_history, verbose=verbose)
+        if response.action == "evaluate":
+            achieved = bool(response.params.get('achieved', False))  # Ensure boolean
+            evaluation_feedback = response.reasoning  # Capture the detailed feedback
+            if achieved:
+                print_retro_status("SUCCESS", "✓ Goal was achieved!")
+                return ('achieved', achieved)
+            else:
+                # Store the detailed rejection reason for next iterations
+                print_retro_status("INFO", "✗ Goal not yet achieved")
+                
+                # Show evaluation feedback in non-verbose mode
+                if not verbose:
+                    if evaluation_feedback:
+                        print_feedback_dimmed("FEEDBACK", evaluation_feedback)
+                    missing_items = response.params.get('missing_items', [])
+                    if missing_items:
+                        print_feedback_dimmed("MISSING", ", ".join(missing_items))
+                    suggestions = response.params.get('suggestions', [])
+                    if suggestions:
+                        print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
+                
+                evaluation_dict = {
+                    'achieved': achieved,
+                    'feedback': evaluation_feedback,
+                    'missing_items': response.params.get('missing_items', []),
+                    'suggestions': response.params.get('suggestions', [])
+                }
+                return ('evaluation_result', evaluation_dict)
+        else:
+            if verbose:
+                print("[ERROR] Failed to get valid 'evaluate' response after retry.")
+            return None
     finally:
         stop_thinking()
-    if verbose:
-        print(f"[DECISION] Evaluation decision: {response}")
-    achieved = bool(response.params.get('achieved', False))  # Ensure boolean
-    evaluation_feedback = response.reasoning  # Capture the detailed feedback
-    
-    if achieved:
-        print_retro_status("SUCCESS", "✓ Goal was achieved!")
-        return ('achieved', achieved)
-    else:
-        # Store the detailed rejection reason for next iterations
-        print_retro_status("INFO", "✗ Goal not yet achieved")
-        return ('evaluation_result', {
-            'achieved': achieved,
-            'feedback': evaluation_feedback,
-            'missing_items': response.params.get('missing_items', []),
-            'suggestions': response.params.get('suggestions', [])
-        })
+    return None
 
 def format_output_action(state: Dict[str, Any], model: str, api_key: Optional[str], output_format: Type[BaseModel], verbose: bool = False) -> Optional[Tuple[str, BaseModel]]:
     """Formats the final output according to the specified Pydantic model."""
@@ -552,6 +650,28 @@ def print_retro_status(status: str, details: str = "") -> None:
     else:
         print(f"\n{Colors.WHITE}[-] {timestamp} {status}: {details}{Colors.RESET}")
 
+def print_feedback_dimmed(feedback_type: str, content: str, max_length: int = 80) -> None:
+    """Prints feedback in a dimmed, non-verbose style for quick overview."""
+    if not content:
+        return
+    
+    # Truncate content if too long
+    truncated = content[:max_length] + "..." if len(content) > max_length else content
+    
+    # Remove newlines and extra spaces for single line display
+    clean_content = " ".join(truncated.split())
+    
+    if feedback_type == "FEEDBACK":
+        print(f"{Colors.DIM}   💭 {clean_content}{Colors.RESET}")
+    elif feedback_type == "MISSING":
+        print(f"{Colors.DIM}   📋 Missing: {clean_content}{Colors.RESET}")
+    elif feedback_type == "SUGGESTIONS":
+        print(f"{Colors.DIM}   💡 {clean_content}{Colors.RESET}")
+    elif feedback_type == "PLAN_FEEDBACK":
+        print(f"{Colors.DIM}   📝 Plan: {clean_content}{Colors.RESET}")
+    else:
+        print(f"{Colors.DIM}   ℹ️  {clean_content}{Colors.RESET}")
+
 def print_retro_progress_bar(current: int, total: int, width: int = 30) -> None:
     """Prints a retro ASCII progress bar with colors."""
     filled = int(width * current / total)
@@ -568,7 +688,7 @@ def print_retro_progress_bar(current: int, total: int, width: int = 30) -> None:
     print(f"[{bar}] {color}{percentage:3d}%{Colors.RESET} ({current}/{total})")
 
 # === Main Loop ===
-def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = None, max_iterations: int = 10, tools: Optional[Dict[str, Callable]] = None, output_format: Optional[Type[BaseModel]] = None, verbose: bool = False) -> Optional[BaseModel]:
+def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = None, max_iterations: int = 20, tools: Optional[Dict[str, Callable]] = None, output_format: Optional[Type[BaseModel]] = None, verbose: bool = False) -> Optional[BaseModel]:
     """
     Runs the main agent loop.
 
@@ -781,10 +901,24 @@ def run_agent(goal: str, model: str = "gpt-3.5-turbo", api_key: Optional[str] = 
                     print_retro_status("INFO", "Evaluator rejected - working on task again")
                     if verbose and feedback:
                         print(f"[FEEDBACK] Evaluator says: {feedback}")
+                    elif not verbose:
+                        if feedback:
+                            print_feedback_dimmed("FEEDBACK", feedback)
+                        if missing_items:
+                            print_feedback_dimmed("MISSING", ", ".join(missing_items))
+                        if suggestions:
+                            print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
                 elif consecutive_failures <= max_consecutive_failures:
                     print_retro_status("INFO", f"Evaluator rejected {consecutive_failures} times - continuing work")
                     if verbose and feedback:
                         print(f"[FEEDBACK] Evaluator says: {feedback}")
+                    elif not verbose:
+                        if feedback:
+                            print_feedback_dimmed("FEEDBACK", feedback)
+                        if missing_items:
+                            print_feedback_dimmed("MISSING", ", ".join(missing_items))
+                        if suggestions:
+                            print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
                 
                 if verbose:
                     print(f"[FAILURE] Evaluator failed {consecutive_failures}/{max_consecutive_failures} times consecutively")

@@ -132,7 +132,8 @@ if __name__ == "__main__":
         goal=agent_goal,
         model="openrouter/google/gemma-3-27b-it", # Model the agent will use for decisions
         tools=agent_tools,
-        output_format=OrderPrediction
+        output_format=OrderPrediction,
+        verbose=True,
     )
 
     print("--- Final Agent Result ---")
