@@ -1,95 +1,346 @@
-# Documento Técnico: Arquitetura do TAgent
+# TAgent Core Architecture Documentation
 
-## Introdução
-O TAgent é um agente autônomo projetado para tarefas de raciocínio e execução, inspirado na arquitetura Redux clássica, mas simplificado para cenários de IA. Ele gerencia um estado centralizado atualizado por ações, permitindo loops de decisão proativos. Para maximizar compatibilidade com diversos modelos de Large Language Models (LLMs), o TAgent evita dependência em "function calls" nativos, optando por **Structured Outputs**. Isso permite que o agente use saídas estruturadas (ex: JSON) geradas por LLMs via prompting, interpretadas em um loop controlado pelo código.
+## Technical Overview
 
-O TAgent é ideal para aplicações como automação de tarefas, assistentes de IA ou workflows autônomos, onde o agente planeja, executa e avalia ações até alcançar um objetivo (goal).
+TAgent is an autonomous AI agent framework designed for reasoning and execution tasks, inspired by the Redux architecture pattern but simplified for AI scenarios. It manages centralized state updated through actions, enabling proactive decision loops. To maximize compatibility with diverse Large Language Models (LLMs), TAgent avoids dependency on native "function calls," opting instead for **Structured Outputs**.
 
-## Características Principais
-- **Baseado em Redux Simplificado**: Usa estado, ações, reducer e store para gerenciamento determinístico e previsível.
-- **Autonomia via Loop**: Um loop principal decide e executa ações com base no estado, simulando raciocínio agente (ex: ReAct-like).
-- **Integração com Structured Outputs**: Em vez de function calls, consultas a LLMs geram saídas estruturadas (ex: JSON com schema fixo), que são parseadas e despachadas como ações. Isso torna o sistema compatível com LLMs sem suporte a tool calling.
-- **Estado como Dicionário**: Estado é um dicionário `{str: BaseModel}` para tipagem e validação (usando bibliotecas como Pydantic).
-- **Ações como Funções**: Ações retornam atualizações ao estado (ex: tuple `(key: str, value: BaseModel)`).
-- **Extensibilidade**: Suporte a ações customizadas (ferramentas) e integração com LLMs para decisões inteligentes.
-- **Opcionais Mínimos**: Sem middlewares, loggers ou validadores por padrão, para simplicidade; adicione conforme necessidade.
+The framework is ideal for applications like task automation, AI assistants, or autonomous workflows where the agent plans, executes, and evaluates actions until achieving a specified goal.
 
-## Componentes da Arquitetura
-### Estado (State)
-- Um dicionário mutável `{str: BaseModel}` que representa o contexto do agente (ex: `{'goal': str, 'plan': dict, 'results': list, 'achieved': bool}`).
-- Inicializado com um goal e atualizado atomicamente via reducer.
-- Benefícios: Fácil serialização (ex: para persistência) e validação via schemas (Pydantic).
+## Core Architecture Principles
 
-### Ações (Actions)
-- Funções que recebem o estado atual e retornam uma tuple opcional `(key: str, value: BaseModel)` para atualização.
-- Ações podem envolver consultas a LLMs para gerar structured outputs, que são então interpretadas.
-- Tipos:
-  - **Ações Padrão**: Definidas no sistema (ver seção abaixo).
-  - **Ações Customizadas (Tools)**: Funções externas registradas, como chamadas a APIs ou scripts.
+### Redux-Inspired State Management
+- **Centralized State**: Single source of truth stored as a dictionary
+- **Immutable Updates**: State changes only through dispatched actions
+- **Predictable Flow**: Deterministic state transitions
+- **Time Travel**: Ability to replay actions for debugging
 
-### Reducer
-- Função simples que aplica atualizações ao estado: `state[key] = value`.
-- Garante imutabilidade ou atomicidade (ex: crie cópias do estado se necessário para thread-safety).
+### Structured Output Integration
+- **LLM Compatibility**: Works with any text-generating model
+- **No Function Calling**: Avoids model-specific tool calling features
+- **JSON Schema**: Enforced output formats for reliability
+- **Fallback Mechanisms**: Graceful handling of malformed outputs
 
-### Store
-- Objeto central que segura o estado e expõe um método `dispatch(action_func)`.
-- Ao despachar: Chama a ação, obtém o resultado e aplica o reducer.
-- Opcional: Integra logging ou validação pós-dispatch.
+### Modular Tool System
+- **Dynamic Discovery**: Automatic loading of `tagent.tools.py` files
+- **Signature Validation**: Type-safe tool registration
+- **State Integration**: Tools receive and update agent state
+- **Error Isolation**: Individual tool failures don't crash the system
 
-### Dispatcher
-- Parte integrada ao store; responsável por invocar ações de forma síncrona ou assíncrona.
+## Component Architecture
 
-### Opcionais
-- **Logger**: Registra ações e mudanças de estado.
-- **Validator**: Usa schemas (ex: Pydantic) para validar estados ou ações.
-- **Serializer/Deserializer**: Para persistir o estado (ex: JSON).
+### State Management
 
-## Integração com Structured Outputs
-Para evitar function calls e suportar mais LLMs, o TAgent usa structured outputs em ações que requerem inteligência (ex: planning ou decision-making):
-- **Processo**:
-  1. Em uma ação (ex: Plan), construa um prompt com o estado atual e instrua o LLM a responder em formato estruturado (ex: JSON: `{'action': str, 'params': dict, 'reasoning': str}`).
-  2. Envie ao LLM (qualquer modelo que gere texto).
-  3. Parse a saída (valide com Pydantic; retry se inválida).
-  4. Interprete: Use o campo `'action'` para decidir o que despachar (ex: se 'execute', chame uma tool).
-  5. Atualize o estado com o resultado.
-- **Exemplo de Schema Estruturado**:
-  ```json
-  {
-    "action": "plan" | "execute" | "summarize" | "evaluate",
-    "params": {"key": "value"},  // Parâmetros específicos
-    "reasoning": "Explicação do porquê dessa ação"
-  }
-  ```
-- **Vantagens**: Flexibilidade (funciona com LLMs como Llama sem tool support); controle granular via loop.
-- **Implementação Dica**: Use bibliotecas como `instructor` (para Pydantic + LLM) ou prompts com few-shot examples para alta adesão.
+```python
+class AgentState(BaseModel):
+    """Represents agent state as a typed dictionary."""
+    data: Dict[str, Any] = {}
 
-## Fluxo de Ações
-Todas as interações ocorrem via ações despachadas ao store. Ações retornam atualizações para o estado, que é um dicionário.
+class Store:
+    """Redux-inspired store managing agent state and tool registry."""
+    
+    def __init__(self, initial_state: Dict[str, Any]):
+        self.state = AgentState(data=initial_state)
+        self.tools: Dict[str, Callable] = {}
+        self.conversation_history: List[Dict[str, str]] = []
+    
+    def dispatch(self, action_func: Callable, verbose: bool = False) -> None:
+        """Dispatch an action and apply state updates."""
+        result = action_func(self.state.data)
+        if result:
+            self._apply_reducer(result)
+```
 
-## Loop Principal
-O "cérebro" do agente é um loop autônomo que consulta LLMs via structured outputs quando necessário:
-- **Inicialização**: Defina o estado inicial com um goal.
-- **Loop** (while not achieved):
-  1. **Consulta LLM para Decisão**: Use structured output para obter a próxima ação sugerida (ex: prompt: "Baseado no estado: {state}. Sugira a próxima ação em JSON.").
-  2. **Parse e Dispatch**: Interprete o output e despache a ação correspondente.
-  3. **Atualize e Avalie**: Aplique reducer; verifique goal via avaliação.
-- **Fluxo Exemplo**: Plan -> Execute -> (Execute | Plan | Summarize) -> Goal Evaluation -> (Plan | Summarize | End).
-- Isso forma um ciclo ReAct-like: Raciocínio (via LLM structured), Ação (dispatch), Observação (estado atualizado).
+**State Structure:**
+- Dictionary-based for easy serialization and debugging
+- Pydantic validation for type safety
+- Conversation history tracking for context
+- Tool registry for dynamic capability extension
 
-## Ações Padrão do Sistema
-- **Plan**: Gera um plano via LLM structured output (ex: lista de passos).
-- **Execute**: Executa uma ação/ferramenta baseada em structured output (ex: chama API e atualiza 'results').
-- **Summarize**: Resume o contexto em uma saída final.
-- **Goal Evaluation**: Avalia se o goal foi alcançado (pode usar LLM para raciocínio complexo).
+### Action System
 
-## Ferramentas como Ações
-- Ferramentas são ações customizadas registradas no agente (ex: `register_tool('fetch_data', func)`).
-- No loop, se o structured output indicar uma ferramenta, despache-a.
-- Exemplo: Uma ferramenta 'search_web' chama uma API externa e retorna `( 'results', dados )`.
+Actions are pure functions that receive state and return state updates:
 
-## Vantagens e Considerações
-- **Vantagens**: Determinístico (Redux), autônomo, compatível com LLMs variados via structured outputs, extensível.
-- **Considerações**: Gerencie custos de LLM (minimize chamadas); adicione timeouts para loops; teste prompts para alta precisão de structured outputs.
-- **Extensões Futuras**: Integração com multi-agentes, persistência de estado ou UI para monitoramento.
+```python
+def example_action(state: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+    """
+    Example action that processes state and returns updates.
+    
+    Args:
+        state: Current agent state dictionary
+        
+    Returns:
+        Tuple of (key, value) for state update, or None if no update
+    """
+    # Process current state
+    result = process_data(state.get('input_data'))
+    
+    # Return state update
+    return ('processed_result', result)
+```
 
-Este documento serve como blueprint para implementação. Versão: 0.1 (Data: 12/07/2025).
+**Action Types:**
+- **System Actions**: Core framework actions (plan, execute, evaluate)
+- **Tool Actions**: External tools registered dynamically
+- **Custom Actions**: Application-specific logic
+
+### Tool Integration
+
+Tools follow a standardized interface:
+
+```python
+def my_custom_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+    """
+    Custom tool example with proper signature.
+    
+    Args:
+        state: Current agent state for context
+        args: Tool-specific arguments from LLM decision
+        
+    Returns:
+        State update tuple or None
+    """
+    # Extract parameters
+    param1 = args.get('param1')
+    param2 = args.get('param2')
+    
+    # Perform tool logic
+    result = external_api_call(param1, param2)
+    
+    # Return state update
+    return ('tool_result', result)
+```
+
+**Tool Discovery Process:**
+1. Scan specified directories for `tagent.tools.py` files
+2. Load modules and extract functions with correct signatures
+3. Validate function signatures: `(state, args) -> Optional[Tuple[str, Any]]`
+4. Register validated tools in the agent's tool registry
+5. Make tools available for LLM selection during execution
+
+### Structured Output System
+
+The framework uses structured outputs to maintain LLM compatibility:
+
+```python
+class StructuredResponse(BaseModel):
+    """Schema for structured outputs generated by LLMs."""
+    action: str  # "plan", "execute", "summarize", "evaluate"
+    params: Dict[str, Any] = {}
+    reasoning: str = ""
+
+def query_llm(prompt: str, model: str, **kwargs) -> StructuredResponse:
+    """
+    Query LLM with structured output enforcement.
+    
+    Args:
+        prompt: Input prompt with context and instructions
+        model: LLM model identifier
+        **kwargs: Additional model parameters
+        
+    Returns:
+        Validated structured response
+    """
+    # Build messages with system prompt for JSON output
+    messages = [
+        {"role": "system", "content": "You are an AI assistant that outputs JSON."},
+        {"role": "user", "content": f"{prompt}\n\nRespond with valid JSON: {StructuredResponse.model_json_schema()}"}
+    ]
+    
+    # Call LLM and validate response
+    response = llm_client.completion(model=model, messages=messages)
+    return StructuredResponse.model_validate_json(response.content)
+```
+
+**Structured Output Flow:**
+1. **Prompt Construction**: Build context-rich prompts with current state
+2. **Schema Enforcement**: Include JSON schema in system prompts
+3. **LLM Query**: Send to any text-generating model
+4. **Response Validation**: Parse and validate JSON against Pydantic schema
+5. **Action Dispatch**: Route to appropriate action based on parsed response
+
+## Main Agent Loop
+
+The autonomous decision loop forms the core of agent behavior:
+
+```python
+def run_agent(goal: str, model: str, tools: Dict[str, Callable], **kwargs) -> Any:
+    """
+    Main agent execution loop.
+    
+    Args:
+        goal: Objective for the agent to achieve
+        model: LLM model for decision making
+        tools: Dictionary of available tools
+        **kwargs: Additional configuration
+        
+    Returns:
+        Final structured output or execution result
+    """
+    store = Store({'goal': goal, 'results': [], 'used_tools': []})
+    
+    # Register tools
+    for name, tool_func in tools.items():
+        store.register_tool(name, tool_func)
+    
+    iteration = 0
+    max_iterations = kwargs.get('max_iterations', 20)
+    
+    while not store.state.data.get('achieved', False) and iteration < max_iterations:
+        iteration += 1
+        
+        # Build decision prompt
+        prompt = build_decision_prompt(store.state.data, tools)
+        
+        # Get LLM decision
+        decision = query_llm(prompt, model)
+        
+        # Dispatch action based on decision
+        if decision.action == "execute" and decision.params.get('tool'):
+            tool_name = decision.params['tool']
+            tool_args = decision.params.get('args', {})
+            
+            if tool_name in store.tools:
+                result = store.tools[tool_name](store.state.data, tool_args)
+                store._apply_reducer(result)
+        
+        elif decision.action == "evaluate":
+            evaluation_result = evaluate_goal_achievement(store.state.data, goal, model)
+            store._apply_reducer(('achieved', evaluation_result.get('achieved', False)))
+        
+        # Additional action handling...
+    
+    return format_final_output(store.state.data, kwargs.get('output_format'))
+```
+
+**Loop Components:**
+1. **State Assessment**: Analyze current progress toward goal
+2. **Decision Making**: Query LLM for next action with structured output
+3. **Action Execution**: Dispatch appropriate action or tool
+4. **State Update**: Apply results through reducer pattern
+5. **Goal Evaluation**: Assess if objective has been achieved
+6. **Iteration Control**: Prevent infinite loops with max iterations
+
+## Advanced Features
+
+### Error Recovery and Loop Detection
+
+```python
+def detect_action_loop(recent_actions: List[str], max_recent: int = 3) -> bool:
+    """Detect if agent is stuck in repetitive action loops."""
+    if len(recent_actions) < 2:
+        return False
+    
+    # Check for immediate repetition
+    if recent_actions[-1] == recent_actions[-2]:
+        return True
+    
+    # Check for longer patterns
+    if len(recent_actions) >= max_recent:
+        last_actions = recent_actions[-max_recent:]
+        return len(set(last_actions)) == 1
+    
+    return False
+```
+
+### Conversation History Management
+
+```python
+def format_conversation_as_chat(conversation_history: List[Dict[str, str]]) -> str:
+    """Format conversation history for context and debugging."""
+    chat_lines = ["=== CONVERSATION HISTORY ===\n"]
+    
+    for i, message in enumerate(conversation_history, 1):
+        role = message.get('role', 'unknown')
+        content = message.get('content', '')
+        
+        if role == 'user':
+            chat_lines.append(f"👤 USER [{i}]: {content}\n")
+        elif role == 'assistant':
+            chat_lines.append(f"🤖 ASSISTANT [{i}]: {content}\n")
+    
+    return "\n".join(chat_lines)
+```
+
+### Tool Introspection
+
+```python
+def get_tool_documentation(tools: Dict[str, Callable]) -> str:
+    """Extract and format tool documentation for LLM prompts."""
+    tool_docs = []
+    
+    for tool_name, tool_func in tools.items():
+        sig = inspect.signature(tool_func)
+        docstring = inspect.getdoc(tool_func) or "No documentation available"
+        
+        tool_doc = f"- {tool_name}{sig}: {docstring}"
+        tool_docs.append(tool_doc)
+    
+    return "Available tools:\n" + "\n".join(tool_docs)
+```
+
+## Production Considerations
+
+### Performance Optimization
+- **LLM Call Minimization**: Cache decisions when possible
+- **Parallel Tool Execution**: For independent operations
+- **State Serialization**: Efficient storage and retrieval
+- **Memory Management**: Clean up large intermediate results
+
+### Error Handling
+- **Graceful Degradation**: Continue operation despite individual tool failures
+- **Timeout Management**: Prevent infinite loops and long-running operations
+- **Validation Layers**: Multiple levels of input/output validation
+- **Rollback Mechanisms**: Ability to revert problematic state changes
+
+### Monitoring and Debugging
+- **Comprehensive Logging**: All actions, decisions, and state changes
+- **Performance Metrics**: Execution time, success rates, resource usage
+- **Debug Mode**: Detailed output for development and troubleshooting
+- **State Inspection**: Tools for examining agent state at any point
+
+## Extension Points
+
+### Custom Action Types
+Extend the framework with new action patterns:
+
+```python
+def register_custom_action(action_name: str, action_func: Callable):
+    """Register new action type in the agent framework."""
+    SYSTEM_ACTIONS[action_name] = action_func
+```
+
+### Output Format Handlers
+Support new output formats through Pydantic models:
+
+```python
+class CustomOutputFormat(BaseModel):
+    """Custom output structure for specific use cases."""
+    results: List[Dict[str, Any]]
+    metadata: Dict[str, str]
+    confidence: float
+
+def format_custom_output(state: Dict[str, Any]) -> CustomOutputFormat:
+    """Convert agent state to custom output format."""
+    return CustomOutputFormat(
+        results=state.get('results', []),
+        metadata=state.get('metadata', {}),
+        confidence=state.get('confidence', 0.0)
+    )
+```
+
+### Model Integration
+Support for new LLM providers:
+
+```python
+def integrate_custom_llm(provider_name: str, client_class: Any):
+    """Integrate new LLM provider into the framework."""
+    LLM_PROVIDERS[provider_name] = client_class
+```
+
+This architecture provides a robust, extensible foundation for building autonomous AI agents that can adapt to various tasks while maintaining reliability and performance in production environments.
+
+---
+
+**Version**: 1.0  
+**Last Updated**: July 12, 2025  
+**Maintainer**: TAgent Development Team
