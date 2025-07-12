@@ -36,6 +36,7 @@ class TravelPlan(BaseModel):
     travel_dates: str = Field(..., description="The dates for the trip (e.g., '2025-08-01 to 2025-08-07').")
     budget: float = Field(..., description="The specified budget for the trip.")
     flights: List[FlightOption] = Field([], description="List of selected flight options.")
+    flight_search_status: str = Field("", description="Status of the flight search (e.g., 'Flights found successfully.', 'No flights found for the route.', 'No flights found within the budget.').")
     hotels: List[HotelOption] = Field([], description="List of selected hotel options.")
     activities: List[ActivityOption] = Field([], description="List of selected activity options.")
     total_estimated_cost: float = Field(0.0, description="The total estimated cost of the entire trip.")
@@ -102,13 +103,22 @@ def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional
         FlightOption(airline="StarLink", flight_number="SL506", origin="London", destination="New York", departure_time="10:30", arrival_time="14:30", price=360.00)
     ]
     
-    # Filter by origin, destination, and budget
-    filtered_flights = [
+    # Filter by origin and destination first
+    route_flights = [
         f for f in all_flights 
-        if f.origin == origin and f.destination == destination and f.price <= budget
+        if f.origin.lower() == origin.lower() and f.destination.lower() == destination.lower()
     ]
     
-    return ('flight_options', [f.model_dump() for f in filtered_flights])
+    if not route_flights:
+        return ('flight_options', []), ('flight_search_status', f"No flights found for the route {origin} to {destination}.")
+    
+    # Then filter by budget
+    affordable_flights = [f for f in route_flights if f.price <= budget]
+    
+    if not affordable_flights:
+        return ('flight_options', []), ('flight_search_status', f"No flights found within the budget of ${budget:.2f} for the route {origin} to {destination}.")
+    
+    return ('flight_options', [f.model_dump() for f in affordable_flights]), ('flight_search_status', "Flights found successfully.")
 
 def search_hotels_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
     """
@@ -273,12 +283,16 @@ def generate_itinerary_summary_tool(state: Dict[str, Any], args: Dict[str, Any])
     activities = state.get('activity_options', [])
     total_cost = state.get('total_estimated_cost', 0.0)
 
+    flight_search_status = state.get('flight_search_status', 'Not searched.')
+
     summary = f"Travel Plan for {destination} from {travel_dates}:\n\n"
     
+    summary += f"Flight Search Status: {flight_search_status}\n"
+
     if flights:
         summary += "Flights:\n"
         for f in flights:
-            summary += f"  - {f['airline']} {f['flight_number']}: {f['departure_time']} to {f['arrival_time']} (${f['price']:.2f})\n"
+            summary += f"  - {f['airline']} {f['flight_number']} ({f['origin']} to {f['destination']}): {f['departure_time']} to {f['arrival_time']} (${f['price']:.2f})\n"
     
     if hotels:
         summary += "\nHotels:\n"
