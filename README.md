@@ -220,6 +220,7 @@ tagent "complex task" \
 ```
 
 ### API Configuration
+
 ```bash
 # Set API key
 export OPENAI_API_KEY="your-key"

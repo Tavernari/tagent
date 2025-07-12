@@ -8,6 +8,7 @@ from pydantic import BaseModel, ValidationError, Field
 import json  # Para parsing de JSON structured outputs
 import litellm  # Para chamadas unificadas a LLMs
 import inspect  # For function introspection
+from .version import __version__
 
 # Enable verbose debug for LLM calls (see https://github.com/BerriAI/litellm/issues/4988)
 litellm.log_raw_request_response = False
@@ -579,7 +580,9 @@ def goal_evaluation_action(
                         print_feedback_dimmed("FEEDBACK", evaluation_feedback)
                     missing_items = response.params.get("missing_items", [])
                     if missing_items:
-                        print_feedback_dimmed("MISSING", ", ".join(missing_items))
+                        # Ensure missing_items are strings
+                        missing_strings = [str(item) if not isinstance(item, str) else item for item in missing_items]
+                        print_feedback_dimmed("MISSING", ", ".join(missing_strings))
                     suggestions = response.params.get("suggestions", [])
                     if suggestions:
                         print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
@@ -896,6 +899,7 @@ def run_agent(
     tools: Optional[Dict[str, Callable]] = None,
     output_format: Optional[Type[BaseModel]] = None,
     verbose: bool = False,
+    crash_if_over_iterations: bool = False,
 ) -> Optional[BaseModel]:
     """
     Runs the main agent loop.
@@ -908,12 +912,14 @@ def run_agent(
         tools: A dictionary of custom tools to register with the agent.
         output_format: The Pydantic model for the final output.
         verbose: If True, shows all debug logs. If False, shows only essential logs.
+        crash_if_over_iterations: If True, raises exception when max_iterations reached.
+                                 If False (default), returns results with summarizer fallback.
 
     Returns:
-        An instance of the `output_format` model, or None if no output isgenerated.
+        An instance of the `output_format` model, or None if no output is generated.
     """
     # 90s Style Agent Initialization
-    print_retro_banner("T-AGENT v0.0.1 STARTING", "▓", color=Colors.BRIGHT_MAGENTA)
+    print_retro_banner(f"T-AGENT v{__version__} STARTING", "▓", color=Colors.BRIGHT_MAGENTA)
     print_retro_status("INIT", f"Goal: {goal[:40]}...")
     print_retro_status("CONFIG", f"Model: {model} | Max Iterations: {max_iterations}")
 
@@ -927,6 +933,10 @@ def run_agent(
     # Action loop detection system
     recent_actions = []
     max_recent_actions = 3
+    
+    # Step counting and evaluator tracking
+    evaluation_rejections = 0
+    max_evaluation_rejections = 3
 
     # Register tools if provided
     if tools:
@@ -944,8 +954,18 @@ def run_agent(
     ):
         iteration += 1
 
+        # Add step counting warnings
+        remaining_steps = max_iterations - iteration
+        if remaining_steps <= 3:
+            print_retro_status(
+                "WARNING", 
+                f"Only {remaining_steps} steps remaining before reaching max iterations ({max_iterations})"
+            )
+            
         if verbose:
-            print(f"[LOOP] Iteration {iteration}. Current state: {store.state.data}")
+            print(f"[LOOP] Iteration {iteration}/{max_iterations}. Current state: {store.state.data}")
+        else:
+            print_retro_status("STEP", f"Step {iteration}/{max_iterations}")
 
         # Check if there was real progress (reset failure counter)
         data_keys = [
@@ -1007,10 +1027,22 @@ def run_agent(
                     evaluation_feedback += f"\nSUGGESTIONS: {suggestions}"
                 evaluation_feedback += "\nACT ON THIS FEEDBACK TO IMPROVE THE RESULT.\n"
 
+        # Add step count warnings to prompt
+        remaining_steps = max_iterations - iteration
+        step_warning = ""
+        if remaining_steps <= 5:
+            if remaining_steps <= 1:
+                step_warning = f"⚠️ CRITICAL: Only {remaining_steps} step remaining before agent stops! Must accomplish goal NOW or it will be lost. "
+            elif remaining_steps <= 2:
+                step_warning = f"⚠️ WARNING: Only {remaining_steps} steps remaining! Focus on goal completion. "
+            else:
+                step_warning = f"⚠️ {remaining_steps} steps left. Be efficient. "
+        
         prompt = (
             f"Goal: {goal}\n"
             f"Current state: {store.state.data}\n"
             f"{progress_summary}\n"
+            f"Step {iteration}/{max_iterations}. {step_warning}\n"
             f"Used tools: {used_tools}\n"
             f"Unused tools: {unused_tools}\n"
             f"{evaluation_feedback}"
@@ -1165,6 +1197,7 @@ def run_agent(
 
             if not current_achieved and not previous_achieved:
                 consecutive_failures += 1
+                evaluation_rejections += 1
 
                 # Extract and show specific feedback from evaluator
                 feedback = evaluation_result.get(
@@ -1184,7 +1217,9 @@ def run_agent(
                         if feedback:
                             print_feedback_dimmed("FEEDBACK", feedback)
                         if missing_items:
-                            print_feedback_dimmed("MISSING", ", ".join(missing_items))
+                            # Ensure missing_items are strings
+                            missing_strings = [str(item) if not isinstance(item, str) else item for item in missing_items]
+                            print_feedback_dimmed("MISSING", ", ".join(missing_strings))
                         if suggestions:
                             print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
                 elif consecutive_failures <= max_consecutive_failures:
@@ -1198,7 +1233,9 @@ def run_agent(
                         if feedback:
                             print_feedback_dimmed("FEEDBACK", feedback)
                         if missing_items:
-                            print_feedback_dimmed("MISSING", ", ".join(missing_items))
+                            # Ensure missing_items are strings
+                            missing_strings = [str(item) if not isinstance(item, str) else item for item in missing_items]
+                            print_feedback_dimmed("MISSING", ", ".join(missing_strings))
                         if suggestions:
                             print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
 
@@ -1207,6 +1244,17 @@ def run_agent(
                         f"[FAILURE] Evaluator failed {consecutive_failures}/{max_consecutive_failures} times consecutively"
                     )
 
+                # Enhanced evaluator recursion prevention
+                if evaluation_rejections >= max_evaluation_rejections:
+                    print_retro_status(
+                        "WARNING",
+                        f"Evaluator rejected {evaluation_rejections} times - preventing evaluation loops",
+                    )
+                    # Force multiple "evaluate" actions to trigger stronger loop detection
+                    recent_actions.extend(["evaluate", "evaluate", "evaluate"])
+                    if verbose:
+                        print(f"[ANTI-LOOP] Added multiple evaluate actions to prevent recursion")
+                
                 # After 2 evaluation failures, force alternative actions
                 if consecutive_failures >= 2:
                     if verbose:
@@ -1315,13 +1363,54 @@ def run_agent(
             if verbose:
                 print(f"[WARNING] {error_msg}")
         elif iteration >= max_iterations:
-            error_msg = "Max iterations reached"
-            print_retro_banner("TIME EXPIRED", "!", color=Colors.BRIGHT_YELLOW)
-            print_retro_status(
-                "WARNING", f"Limit of {max_iterations} iterations reached"
-            )
-            if verbose:
-                print(f"[WARNING] {error_msg}")
+            if crash_if_over_iterations:
+                error_msg = "Max iterations reached"
+                print_retro_banner("TIME EXPIRED", "!", color=Colors.BRIGHT_RED)
+                print_retro_status(
+                    "ERROR", f"Limit of {max_iterations} iterations reached - crashing as requested"
+                )
+                if verbose:
+                    print(f"[ERROR] {error_msg}")
+                raise RuntimeError(f"Agent exceeded max_iterations ({max_iterations}) and crash_if_over_iterations=True")
+            else:
+                # Fallback to summarizer on final step
+                print_retro_banner("TIME EXPIRED - SUMMARIZING", "!", color=Colors.BRIGHT_YELLOW)
+                print_retro_status(
+                    "FALLBACK", f"Max iterations ({max_iterations}) reached - calling summarizer to preserve work"
+                )
+                if verbose:
+                    print(f"[FALLBACK] Max iterations reached, running summarizer to preserve work")
+                
+                # Call summarizer to preserve work done so far
+                try:
+                    store.dispatch(
+                        lambda state: summarize_action(
+                            state,
+                            model,
+                            api_key,
+                            tools=store.tools,
+                            conversation_history=store.conversation_history,
+                            verbose=verbose,
+                        ),
+                        verbose=verbose,
+                    )
+                    summary_result = store.state.data.get("summary")
+                    if summary_result:
+                        print_retro_status("SUCCESS", "Summary generated successfully despite iteration limit")
+                        return {
+                            "result": summary_result,
+                            "conversation_history": store.conversation_history,
+                            "chat_summary": format_conversation_as_chat(store.conversation_history),
+                            "status": "completed_with_summary_fallback",
+                            "iterations_used": iteration,
+                            "max_iterations": max_iterations,
+                        }
+                except Exception as e:
+                    print_retro_status("ERROR", f"Summarizer fallback failed: {str(e)}")
+                    if verbose:
+                        print(f"[ERROR] Summarizer fallback failed: {e}")
+                
+                error_msg = "Max iterations reached"
         else:
             error_msg = "Unknown termination reason"
             print_retro_banner("UNEXPECTED STOP", "!", color=Colors.BRIGHT_RED)
