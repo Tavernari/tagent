@@ -40,7 +40,8 @@ def plan_action(
             f"\nPrevious Evaluator Feedback: {feedback}\n"
             f"Missing Items: {missing_items}\n"
             f"Suggestions: {suggestions}\n"
-            "Address this feedback in your new plan. Incorporate suggestions, focus on missing items, and use unused tools where appropriate."
+            "Address this feedback in your new plan. Incorporate suggestions, "
+            "focus on missing items, and use unused tools where appropriate."
         )
 
     prompt = (
@@ -51,8 +52,9 @@ def plan_action(
         f"{feedback_str}\n"
         "The current approach may not be working. Generate a new strategic plan. "
         "Consider: 1) What data is still missing? 2) What tools haven't been tried? "
-        "3) What alternative approaches could work? 4) Should we try different parameters? "
-        "Output a plan as params (e.g., {'steps': ['step1', 'step2'], 'focus_tools': ['tool1']})."
+        "3) What alternative approaches could work? 4) Should we try different "
+        "parameters? Output a plan as params (e.g., {'steps': ['step1', 'step2'], "
+        "'focus_tools': ['tool1']})."
     )
     start_thinking("Generating strategic plan")
     try:
@@ -68,7 +70,8 @@ def plan_action(
         if response.action != "plan":
             if verbose:
                 print(
-                    f"[WARNING] Invalid action in plan: {response.action}. Retrying with forced plan."
+                    f"[WARNING] Invalid action in plan: {response.action}. "
+                    "Retrying with forced plan."
                 )
             forced_prompt = (
                 prompt
@@ -121,11 +124,17 @@ def summarize_action(
 
     feedback_str = ""
     if feedback or missing_items or suggestions:
-        feedback_str = f"\nPrevious Evaluator Feedback: {feedback}\nMissing: {missing_items}\nSuggestions: {suggestions}\nIncorporate this feedback into the summary. Ensure all suggestions are addressed."
+        feedback_str = (
+            f"\nPrevious Evaluator Feedback: {feedback}\nMissing: {missing_items}\n"
+            f"Suggestions: {suggestions}\nIncorporate this feedback into the summary. "
+            "Ensure all suggestions are addressed."
+        )
 
     prompt = (
-        f"Based on the current state: {state}. Generate a detailed summary that fulfills the goal.{feedback_str}\n"
-        "Include calculations (e.g., total estimated cost based on stock and prices), order predictions, and analysis. Make it comprehensive."
+        f"Based on the current state: {state}. Generate a detailed summary that "
+        f"fulfills the goal.{feedback_str}\n"
+        "Include calculations (e.g., total estimated cost based on stock and prices), "
+        "order predictions, and analysis. Make it comprehensive."
     )
     start_thinking("Compiling summary")
     try:
@@ -140,7 +149,8 @@ def summarize_action(
         if response.action != "summarize":
             if verbose:
                 print(
-                    f"[WARNING] Invalid action in summarize: {response.action}. Retrying with forced summarize."
+                    f"[WARNING] Invalid action in summarize: {response.action}. "
+                    "Retrying with forced summarize."
                 )
             forced_prompt = prompt + "\nMUST use action='summarize'."
             response = query_llm(
@@ -178,9 +188,12 @@ def goal_evaluation_action(
     verbose: bool = False,
     store: Optional[
         Any
-    ] = None,  # Store reference for conversation updates (Optional to fix legacy bug)
+    ] = None,  # Store reference for conversation updates (legacy bug fix)
 ) -> Optional[Tuple[str, BaseModel]]:
-    """Evaluates if the goal has been achieved via structured output, considering previous feedback."""
+    """
+    Evaluates if the goal has been achieved via structured output, 
+    considering previous feedback.
+    """
     print_retro_status("EVALUATE", "Checking if goal was achieved...")
     goal = state.get("goal", "")
     data_items = [
@@ -198,13 +211,17 @@ def goal_evaluation_action(
         feedback_str = (
             f"\nPrevious Evaluation: {previous_feedback}\n"
             f"Previously Missing: {previous_missing}\n"
-            "Consider if these have been addressed in the current state. Be consistent with past evaluations."
+            "Consider if these have been addressed in the current state. "
+            "Be consistent with past evaluations."
         )
 
     prompt = (
         f"Based on the current state: {state} and the goal: '{goal}'.{feedback_str}\n"
-        "Evaluate if the goal has been sufficiently achieved. Consider the data collected and whether it meets the requirements. "
-        "If NOT achieved, explain specifically what is missing or insufficient in 'reasoning', and ALWAYS include 'missing_items' (list of strings) and 'suggestions' (list of at least 2 specific actions) in params so the agent can take corrective action."
+        "Evaluate if the goal has been sufficiently achieved. Consider the data "
+        "collected and whether it meets the requirements. If NOT achieved, explain "
+        "specifically what is missing or insufficient in 'reasoning', and ALWAYS "
+        "include 'missing_items' (list of strings) and 'suggestions' (list of at "
+        "least 2 specific actions) in params so the agent can take corrective action."
     )
     start_thinking("Evaluating goal")
     try:
@@ -220,11 +237,13 @@ def goal_evaluation_action(
         if response.action != "evaluate":
             if verbose:
                 print(
-                    f"[WARNING] Invalid action in evaluate: {response.action}. Retrying with forced evaluate."
+                    f"[WARNING] Invalid action in evaluate: {response.action}. "
+                    "Retrying with forced evaluate."
                 )
             forced_prompt = (
                 prompt
-                + "\nMUST use action='evaluate' and provide params with 'achieved' (bool), 'missing_items', 'suggestions' if not achieved."
+                + "\nMUST use action='evaluate' and provide params with "
+                "'achieved' (bool), 'missing_items', 'suggestions' if not achieved."
             )
             response = query_llm(
                 forced_prompt,
@@ -266,10 +285,15 @@ def goal_evaluation_action(
                 }
 
                 # Add observation to history immediately after failure
-                # Note: store parameter was added to fix a bug where store was referenced but not passed
+                # Note: store parameter was added to fix a bug where store was
+                # referenced but not passed
                 if store is not None:
-                    missing_str = ", ".join(response.params.get("missing_items", []))
-                    suggestions_str = ", ".join(response.params.get("suggestions", []))
+                    missing_str = ", ".join(
+                        response.params.get("missing_items", [])
+                    )
+                    suggestions_str = ", ".join(
+                        response.params.get("suggestions", [])
+                    )
                     observation = (
                         f"Observation from evaluate: Goal NOT achieved. "
                         f"Feedback: {evaluation_feedback}. Missing: {missing_str}. Suggestions: {suggestions_str}. "
@@ -298,8 +322,9 @@ def format_output_action(
     goal = state.get("goal", "")
     prompt = (
         f"Based on the final state: {state} and the original goal: '{goal}'. "
-        "Extract and format all relevant data collected during the goal execution. "
-        "Create appropriate summaries and ensure all required fields are filled according to the output schema."
+        "Extract and format all relevant data collected during the goal "
+        "execution. Create appropriate summaries and ensure all required "
+        "fields are filled according to the output schema."
     )
     start_thinking("Structuring final result")
     try:

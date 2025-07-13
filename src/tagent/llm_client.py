@@ -29,7 +29,7 @@ def query_llm(
     """
     system_message = {
         "role": "system",
-        "content": "You are a helpful assistant designed to output JSON. For 'evaluate' actions, include specific feedback. Example: {'action': 'execute', 'params': {'tool': 'tool_name', 'args': {'parameter': 'value'}}, 'reasoning': 'Reason to execute the action.'} or {'action': 'evaluate', 'params': {'achieved': false, 'missing_items': ['item1', 'item2'], 'suggestions': ['suggestion1']}, 'reasoning': 'Detailed explanation of what is missing and why goal is not achieved.'}",
+        "content": "You are a helpful assistant designed to output JSON. For 'evaluate' actions, include specific feedback. Example: {\"action\": \"execute\", \"params\": {\"tool\": \"tool_name\", \"args\": {\"parameter\": \"value\"}}, \"reasoning\": \"Reason to execute the action.\"} or {\"action\": \"evaluate\", \"params\": {\"achieved\": false, \"missing_items\": [\"item1\", \"item2\"], \"suggestions\": [\"suggestion1\"]}, \"reasoning\": \"Detailed explanation of what is missing and why goal is not achieved.\"}",
     }
 
     # Use detailed tool documentation if available
@@ -46,8 +46,8 @@ def query_llm(
             "Ensure 'params' contains 'tool' (tool name) and 'args' (parameters matching the tool's signature).\n"
             "When using 'evaluate' action, if goal is NOT achieved, include 'missing_items' and 'suggestions' in params.\n"
             "Respond ONLY with a valid JSON in the format: "
-            "{'action': str (plan|execute|summarize|evaluate), 'params': dict, 'reasoning': str}."
-            "Do not add extra text."
+            "{\"action\": str (plan|execute|summarize|evaluate), \"params\": dict, \"reasoning\": str}."
+            "Use double quotes for JSON strings, not single quotes. Do not add extra text."
         ),
     }
 
@@ -81,8 +81,24 @@ def query_llm(
             if verbose:
                 print(f"[RESPONSE] Raw LLM output: {json_str}")
 
-            # Parse and validate with Pydantic
-            return StructuredResponse.model_validate_json(json_str)
+            # Attempt to fix common JSON formatting issues
+            try:
+                # Try parsing as-is first
+                return StructuredResponse.model_validate_json(json_str)
+            except (ValidationError, json.JSONDecodeError):
+                # Try fixing single quotes to double quotes as a fallback
+                try:
+                    import re
+                    # Replace single quotes with double quotes for JSON keys and string values
+                    # This is a simple fix for the most common issue
+                    fixed_json = re.sub(r"'([^']*)':", r'"\1":', json_str)  # Fix keys
+                    fixed_json = re.sub(r": '([^']*)'", r': "\1"', fixed_json)  # Fix string values
+                    if verbose:
+                        print(f"[RESPONSE] Attempting with fixed JSON: {fixed_json}")
+                    return StructuredResponse.model_validate_json(fixed_json)
+                except (ValidationError, json.JSONDecodeError):
+                    # If both attempts fail, let the original exception bubble up
+                    return StructuredResponse.model_validate_json(json_str)
 
         except (
             litellm.AuthenticationError,

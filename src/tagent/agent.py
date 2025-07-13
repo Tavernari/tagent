@@ -50,8 +50,8 @@ def run_agent(
         tools: A dictionary of custom tools to register with the agent.
         output_format: The Pydantic model for the final output.
         verbose: If True, shows all debug logs. If False, shows only essential logs.
-        crash_if_over_iterations: If True, raises exception when max_iterations reached.
-                                 If False (default), returns results with summarizer fallback.
+        crash_if_over_iterations: If True, raises exception when max_iterations
+            reached. If False (default), returns results with summarizer fallback.
 
     Returns:
         An instance of the `output_format` model, or None if no output is generated.
@@ -61,7 +61,9 @@ def run_agent(
         f"T-AGENT v{__version__} STARTING", "▓", color=Colors.BRIGHT_MAGENTA
     )
     print_retro_status("INIT", f"Goal: {goal[:40]}...")
-    print_retro_status("CONFIG", f"Model: {model} | Max Iterations: {max_iterations}")
+    print_retro_status(
+        "CONFIG", f"Model: {model} | Max Iterations: {max_iterations}"
+    )
 
     store = Store({"goal": goal, "results": [], "used_tools": []})
 
@@ -104,7 +106,8 @@ def run_agent(
 
         if verbose:
             print(
-                f"[LOOP] Iteration {iteration}/{max_iterations}. Current state: {store.state.data}"
+                f"[LOOP] Iteration {iteration}/{max_iterations}. "
+                f"Current state: {store.state.data}"
             )
         else:
             print_retro_status("STEP", f"Step {iteration}/{max_iterations}")
@@ -120,7 +123,8 @@ def run_agent(
         if current_data_count > last_data_count:
             if verbose:
                 print(
-                    f"[PROGRESS] Data items increased from {last_data_count} to {current_data_count} - resetting failure counter"
+                    f"[PROGRESS] Data items increased from {last_data_count} to "
+                    f"{current_data_count} - resetting failure counter"
                 )
             consecutive_failures = 0
             last_data_count = current_data_count
@@ -152,13 +156,28 @@ def run_agent(
                 )
 
             if last_action == "evaluate" and unused_tools:
-                strategy_hint = f"CRITICAL: Stop evaluating! The goal is NOT achieved because you need to gather more data. Use unused tools: {unused_tools}. DO NOT use 'evaluate' again. "
+                strategy_hint = (
+                    "CRITICAL: Stop evaluating! The goal is NOT achieved because "
+                    f"you need to gather more data. Use unused tools: {unused_tools}. "
+                    "DO NOT use 'evaluate' again. "
+                )
             elif last_action == "evaluate" and not unused_tools:
-                strategy_hint = "CRITICAL: Stop evaluating! The goal is NOT achieved. You must 'plan' a new strategy or 'execute' tools with different parameters. DO NOT use 'evaluate' again until you've tried other actions. "
+                strategy_hint = (
+                    "CRITICAL: Stop evaluating! The goal is NOT achieved. You must "
+                    "'plan' a new strategy or 'execute' tools with different "
+                    "parameters. DO NOT use 'evaluate' again until you've tried "
+                    "other actions. "
+                )
             elif unused_tools:
-                strategy_hint = f"IMPORTANT: Break the pattern! Try unused tools: {unused_tools} or use 'plan' to rethink approach. "
+                strategy_hint = (
+                    f"IMPORTANT: Break the pattern! Try unused tools: {unused_tools} "
+                    "or use 'plan' to rethink approach. "
+                )
             else:
-                strategy_hint = "IMPORTANT: Break the pattern! Try 'plan' to develop new strategy or different parameters. "
+                strategy_hint = (
+                    "IMPORTANT: Break the pattern! Try 'plan' to develop new "
+                    "strategy or different parameters. "
+                )
 
         # Include evaluation feedback in prompt if available
         evaluation_feedback = ""
