@@ -2,7 +2,7 @@
 # Integration with LiteLLM for real LLM calls, leveraging JSON Mode.
 # Requirements: pip install pydantic litellm
 
-from typing import Dict, Any, Optional, Callable, Type
+from typing import Dict, Any, Optional, Callable, Type, Union
 from pydantic import BaseModel, Field
 import json
 import time
@@ -28,14 +28,83 @@ from .ui import (
 )
 from .utils import detect_action_loop, format_conversation_as_chat
 from .state_machine import AgentStateMachine, ActionType, AgentState
+from .model_config import AgentModelConfig, AgentStep, ModelConfig, create_config_from_string
+
+
+class AgentModelSelector:
+    """
+    Centralized model selector that handles all model selection logic for agent steps.
+    
+    This class provides a testable abstraction layer for model selection, ensuring
+    the correct model is chosen for each agent step based on configuration hierarchy.
+    """
+    
+    def __init__(self, config: AgentModelConfig):
+        """
+        Initialize the model selector with a configuration object.
+        
+        Args:
+            config: AgentModelConfig object containing model settings
+        """
+        self.config = config
+    
+    def get_model_for_step(self, step: AgentStep) -> str:
+        """
+        Get the appropriate model for a specific agent step.
+        
+        Args:
+            step: The agent step requiring a model
+            
+        Returns:
+            Model name string to use for the specified step
+        """
+        return ModelConfig.get_model_for_step(
+            step=step,
+            fallback_model=self.config.tagent_model,
+            config=self.config
+        )
+    
+    def get_api_key(self) -> Optional[str]:
+        """Get the API key from configuration."""
+        return self.config.api_key
+    
+    def get_planner_model(self) -> str:
+        """Get model for planning actions."""
+        return self.get_model_for_step(AgentStep.PLANNER)
+    
+    def get_executor_model(self) -> str:
+        """Get model for execution actions."""
+        return self.get_model_for_step(AgentStep.EXECUTOR)
+    
+    def get_summarizer_model(self) -> str:
+        """Get model for summarization actions."""
+        return self.get_model_for_step(AgentStep.SUMMARIZER)
+    
+    def get_evaluator_model(self) -> str:
+        """Get model for evaluation actions."""
+        return self.get_model_for_step(AgentStep.EVALUATOR)
+    
+    def get_finalizer_model(self) -> str:
+        """Get model for final formatting actions."""
+        return self.get_model_for_step(AgentStep.FINALIZER)
+    
+    def get_global_model(self) -> str:
+        """Get the global fallback model."""
+        return self.config.tagent_model
+    
+    def __str__(self) -> str:
+        """String representation showing the effective models for each step."""
+        models = {}
+        for step in AgentStep:
+            models[step.value] = self.get_model_for_step(step)
+        return f"AgentModelSelector(models={models})"
 
 
 def _generate_and_show_step_summary(
     action: str,
     reasoning: str,
     result_description: str,
-    model: str,
-    api_key: Optional[str],
+    model_selector: AgentModelSelector,
     verbose: bool = False,
 ) -> None:
     """
@@ -46,8 +115,8 @@ def _generate_and_show_step_summary(
             action=action,
             reasoning=reasoning,
             result=result_description,
-            model=model,
-            api_key=api_key,
+            model=model_selector.get_global_model(),
+            api_key=model_selector.get_api_key(),
             verbose=verbose,
         )
         print_feedback_dimmed("STEP_SUMMARY", summary)
@@ -59,7 +128,7 @@ def _generate_and_show_step_summary(
 # === Main Agent Loop ===
 def run_agent(
     goal: str,
-    model: str = "gpt-3.5-turbo",
+    model: Union[str, AgentModelConfig] = "gpt-3.5-turbo",
     api_key: Optional[str] = None,
     max_iterations: int = 20,
     tools: Optional[Dict[str, Callable]] = None,
@@ -72,8 +141,9 @@ def run_agent(
 
     Args:
         goal: The main objective for the agent.
-        model: The LLM model to use.
-        api_key: The API key for the LLM service.
+        model: Either a model string (e.g., "gpt-4") for backward compatibility,
+            or an AgentModelConfig object for step-specific model configuration.
+        api_key: The API key for the LLM service (deprecated - use AgentModelConfig).
         max_iterations: The maximum number of iterations.
         tools: A dictionary of custom tools to register with the agent.
         output_format: The Pydantic model for the final output.
@@ -84,13 +154,27 @@ def run_agent(
     Returns:
         An instance of the `output_format` model, or None if no output is generated.
     """
+    # Handle backward compatibility: convert string model to AgentModelConfig
+    if isinstance(model, str):
+        model_config = create_config_from_string(model, api_key)
+    elif isinstance(model, AgentModelConfig):
+        model_config = model
+        # If api_key is provided separately and config doesn't have it, use the parameter
+        if api_key and not model_config.api_key:
+            model_config.api_key = api_key
+    else:
+        raise ValueError(f"model parameter must be either str or AgentModelConfig, got {type(model)}")
+    
+    # Create the centralized model selector
+    model_selector = AgentModelSelector(model_config)
+    
     # 90s Style Agent Initialization
     print_retro_banner(
         f"T-AGENT v{__version__} STARTING", "▓", color=Colors.BRIGHT_MAGENTA
     )
     print_retro_status("INIT", f"Goal: {goal[:40]}...")
     print_retro_status(
-        "CONFIG", f"Model: {model} | Max Iterations: {max_iterations}"
+        "CONFIG", f"Model: {model_selector.get_global_model()} | Max Iterations: {max_iterations}"
     )
 
     store = Store({"goal": goal, "results": [], "used_tools": []})
@@ -302,8 +386,8 @@ def run_agent(
             try:
                 decision = query_llm(
                     prompt,
-                    model,
-                    api_key,
+                    model_selector.get_global_model(),
+                    model_selector.get_api_key(),
                     tools=store.tools,
                     conversation_history=store.conversation_history[:-1],
                     verbose=verbose,
@@ -313,7 +397,7 @@ def run_agent(
 
         # Generate concise step title using LLM
         step_title = generate_step_title(
-            decision.action, decision.reasoning, model, api_key, verbose
+            decision.action, decision.reasoning, model_selector.get_global_model(), model_selector.get_api_key(), verbose
         )
         print_retro_step(iteration, decision.action, step_title)
         if verbose:
@@ -366,18 +450,19 @@ def run_agent(
             store.dispatch(
                 lambda state: plan_action(
                     state,
-                    model,
-                    api_key,
+                    model_selector.get_planner_model(),
+                    model_selector.get_api_key(),
                     tools=store.tools,
                     conversation_history=store.conversation_history,
                     verbose=verbose,
+                    config=model_config,
                 ),
                 verbose=verbose,
             )
             # Generate step summary
             plan_result = f"Strategic plan created with steps and focus areas"
             _generate_and_show_step_summary(
-                "plan", decision.reasoning, plan_result, model, api_key, verbose
+                "plan", decision.reasoning, plan_result, model_selector, verbose
             )
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
@@ -415,7 +500,10 @@ def run_agent(
                         tool_output = json.dumps(formatted_result, indent=2)
                     elif isinstance(result, tuple) and len(result) == 2:
                         key, value = result
-                        tool_output = json.dumps({key: value}, indent=2)
+                        try:
+                            tool_output = json.dumps({key: value}, indent=2)
+                        except Exception as e:
+                            tool_output = str(value)
                     else:
                         tool_output = str(result)
                     observation = f"Observation from tool {tool_name}: {tool_output}"
@@ -435,7 +523,7 @@ def run_agent(
                 # Generate step summary
                 tool_result = f"Tool {tool_name} executed - data collected and stored"
                 _generate_and_show_step_summary(
-                    "execute", decision.reasoning, tool_result, model, api_key, verbose
+                    "execute", decision.reasoning, tool_result, model_selector, verbose
                 )
                 # Update state machine AFTER successful execution
                 state_machine.transition(action_type)
@@ -452,18 +540,19 @@ def run_agent(
             store.dispatch(
                 lambda state: summarize_action(
                     state,
-                    model,
-                    api_key,
+                    model_selector.get_summarizer_model(),
+                    model_selector.get_api_key(),
                     tools=store.tools,
                     conversation_history=store.conversation_history,
                     verbose=verbose,
+                    config=model_config,
                 ),
                 verbose=verbose,
             )
             # Generate step summary
             summary_result = f"Summary generated combining {len(store.conversation_history)} conversation items"
             _generate_and_show_step_summary(
-                "summarize", decision.reasoning, summary_result, model, api_key, verbose
+                "summarize", decision.reasoning, summary_result, model_selector, verbose
             )
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
@@ -475,12 +564,13 @@ def run_agent(
                 store.dispatch(
                     lambda state: enhanced_goal_evaluation_action(
                         state,
-                        model,
-                        api_key,
+                        model_selector.get_evaluator_model(),
+                        model_selector.get_api_key(),
                         tools=store.tools,
                         conversation_history=store.conversation_history,
                         verbose=verbose,
                         store=store,
+                        config=model_config,
                     ),
                     verbose=verbose,
                 )
@@ -491,12 +581,13 @@ def run_agent(
             store.dispatch(
                 lambda state: enhanced_goal_evaluation_action(
                     state,
-                    model,
-                    api_key,
+                    model_selector.get_evaluator_model(),
+                    model_selector.get_api_key(),
                     tools=store.tools,
                     conversation_history=store.conversation_history,
                     verbose=verbose,
                     store=store,
+                    config=model_config,
                 ),
                 verbose=verbose,
             )
@@ -504,7 +595,7 @@ def run_agent(
             eval_achieved = store.state.data.get("achieved", False)
             eval_result = f"Goal evaluation: {'achieved' if eval_achieved else 'not yet achieved'}"
             _generate_and_show_step_summary(
-                "evaluate", decision.reasoning, eval_result, model, api_key, verbose
+                "evaluate", decision.reasoning, eval_result, model_selector, verbose
             )
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
@@ -531,11 +622,12 @@ def run_agent(
                 store.dispatch(
                     lambda state: plan_action(
                         state,
-                        model,
-                        api_key,
+                        model_selector.get_planner_model(),
+                        model_selector.get_api_key(),
                         tools=store.tools,
                         conversation_history=store.conversation_history,
                         verbose=verbose,
+                        config=model_config,
                     ),
                     verbose=verbose,
                 )
@@ -593,11 +685,12 @@ def run_agent(
                     store.dispatch(
                         lambda state: plan_action(
                             state,
-                            model,
-                            api_key,
+                            model_selector.get_planner_model(),
+                            model_selector.get_api_key(),
                             tools=store.tools,
                             conversation_history=store.conversation_history,
                             verbose=verbose,
+                            config=model_config,
                         ),
                         verbose=verbose,
                     )
@@ -636,7 +729,7 @@ def run_agent(
                 try:
                     store.dispatch(
                         lambda state: format_output_action(
-                            state, model, api_key, output_format, verbose=verbose
+                            state, model_selector.get_finalizer_model(), model_selector.get_api_key(), output_format, verbose=verbose, config=model_config
                         ),
                         verbose=verbose,
                     )
@@ -656,12 +749,13 @@ def run_agent(
             store.dispatch(
                 lambda state: enhanced_goal_evaluation_action(
                     state,
-                    model,
-                    api_key,
+                    model_selector.get_evaluator_model(),
+                    model_selector.get_api_key(),
                     tools=store.tools,
                     conversation_history=store.conversation_history,
                     verbose=verbose,
                     store=store,
+                    config=model_config,
                 ),
                 verbose=verbose,
             )
@@ -772,11 +866,12 @@ def run_agent(
                     store.dispatch(
                         lambda state: summarize_action(
                             state,
-                            model,
-                            api_key,
+                            model_selector.get_summarizer_model(),
+                            model_selector.get_api_key(),
                             tools=store.tools,
                             conversation_history=store.conversation_history,
                             verbose=verbose,
+                            config=model_config,
                         ),
                         verbose=verbose,
                     )
@@ -789,12 +884,13 @@ def run_agent(
                         store.dispatch(
                             lambda state: enhanced_goal_evaluation_action(
                                 state,
-                                model,
-                                api_key,
+                                model_selector.get_evaluator_model(),
+                                model_selector.get_api_key(),
                                 tools=store.tools,
                                 conversation_history=store.conversation_history,
                                 verbose=verbose,
                                 store=store,
+                                config=model_config,
                             ),
                             verbose=verbose,
                         )
@@ -810,7 +906,7 @@ def run_agent(
                             print_retro_status("FORMAT_FALLBACK", "Applying output schema to available data...")
                             store.dispatch(
                                 lambda state: format_fallback_output_action(
-                                    state, model, api_key, output_format, verbose=verbose
+                                    state, model_selector.get_finalizer_model(), model_selector.get_api_key(), output_format, verbose=verbose, config=model_config
                                 ),
                                 verbose=verbose,
                             )

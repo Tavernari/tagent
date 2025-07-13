@@ -7,6 +7,13 @@ from pydantic import BaseModel
 
 from .llm_client import query_llm, query_llm_for_model
 from .ui import print_retro_status, print_feedback_dimmed, start_thinking, stop_thinking
+from .model_config import (
+    get_summarizer_model,
+    get_evaluator_model,
+    get_planner_model,
+    get_finalizer_model,
+    AgentModelConfig,
+)
 
 
 def auto_summarize_for_evaluation(
@@ -15,6 +22,7 @@ def auto_summarize_for_evaluation(
     model: str,
     api_key: Optional[str],
     verbose: bool = False,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[str]:
     """
     Creates a summary of collected data specifically for goal evaluation.
@@ -46,9 +54,10 @@ def auto_summarize_for_evaluation(
     
     start_thinking("Auto-summarizing for evaluation")
     try:
+        summarizer_model = get_summarizer_model(model, config)
         response = query_llm(
             prompt,
-            model,
+            summarizer_model,
             api_key,
             verbose=verbose,
         )
@@ -68,6 +77,7 @@ def enhanced_goal_evaluation_action(
     verbose: bool = False,
     store: Optional[Any] = None,
     auto_summarize: bool = True,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """
     Enhanced evaluator with optional auto-summarization before evaluation.
@@ -85,7 +95,7 @@ def enhanced_goal_evaluation_action(
                 print("[AUTO-SUMMARIZE] Triggering auto-summarization for better evaluation...")
             
             auto_summary = auto_summarize_for_evaluation(
-                state, conversation_history, model, api_key, verbose
+                state, conversation_history, model, api_key, verbose, config
             )
             if auto_summary:
                 # Add the summary to state temporarily for this evaluation
@@ -96,7 +106,7 @@ def enhanced_goal_evaluation_action(
     
     # Use the original evaluation function with enhanced context
     return goal_evaluation_action(
-        state, model, api_key, tools, conversation_history, verbose, store
+        state, model, api_key, tools, conversation_history, verbose, store, config
     )
 
 
@@ -107,6 +117,7 @@ def plan_action(
     tools: Optional[Dict[str, Callable]] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     verbose: bool = False,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """Generates a plan via LLM structured output, adapting to evaluator feedback."""
     print_retro_status("PLAN", "Analyzing current situation...")
@@ -149,9 +160,10 @@ def plan_action(
     )
     start_thinking("Generating strategic plan")
     try:
+        planner_model = get_planner_model(model, config)
         response = query_llm(
             prompt,
-            model,
+            planner_model,
             api_key,
             tools=tools,
             conversation_history=conversation_history,
@@ -170,7 +182,7 @@ def plan_action(
             )
             response = query_llm(
                 clarified_prompt,
-                model,
+                planner_model,
                 api_key,
                 tools=tools,
                 conversation_history=conversation_history,
@@ -203,6 +215,7 @@ def summarize_action(
     tools: Optional[Dict[str, Callable]] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     verbose: bool = False,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """Summarizes the context, adapting to evaluator feedback."""
     print_retro_status("SUMMARIZE", "Compiling collected information...")
@@ -227,9 +240,10 @@ def summarize_action(
     )
     start_thinking("Compiling summary")
     try:
+        summarizer_model = get_summarizer_model(model, config)
         response = query_llm(
             prompt,
-            model,
+            summarizer_model,
             api_key,
             tools=tools,
             conversation_history=conversation_history,
@@ -244,7 +258,7 @@ def summarize_action(
             clarified_prompt = prompt + "\nPlease provide a summary with action='summarize'."
             response = query_llm(
                 clarified_prompt,
-                model,
+                summarizer_model,
                 api_key,
                 tools=tools,
                 conversation_history=conversation_history,
@@ -278,6 +292,7 @@ def goal_evaluation_action(
     store: Optional[
         Any
     ] = None,  # Store reference for conversation updates (legacy bug fix)
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """
     Evaluates if the goal has been achieved via structured output, 
@@ -344,9 +359,10 @@ def goal_evaluation_action(
     )
     start_thinking("Evaluating goal")
     try:
+        evaluator_model = get_evaluator_model(model, config)
         response = query_llm(
             prompt,
-            model,
+            evaluator_model,
             api_key,
             tools=tools,
             conversation_history=conversation_history,
@@ -366,7 +382,7 @@ def goal_evaluation_action(
             )
             response = query_llm(
                 clarified_prompt,
-                model,
+                evaluator_model,
                 api_key,
                 tools=tools,
                 conversation_history=conversation_history,
@@ -435,6 +451,7 @@ def format_output_action(
     api_key: Optional[str],
     output_format: Type[BaseModel],
     verbose: bool = False,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """Formats the final output according to the specified Pydantic model."""
     print_retro_status("FORMAT", "Structuring final result...")
@@ -447,8 +464,9 @@ def format_output_action(
     )
     start_thinking("Structuring final result")
     try:
+        finalizer_model = get_finalizer_model(model, config)
         formatted_output = query_llm_for_model(
-            prompt, model, output_format, api_key, verbose=verbose
+            prompt, finalizer_model, output_format, api_key, verbose=verbose
         )
     finally:
         stop_thinking()
@@ -462,6 +480,7 @@ def format_fallback_output_action(
     api_key: Optional[str],
     output_format: Type[BaseModel],
     verbose: bool = False,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """
     Formats output with fallback handling for incomplete data.
@@ -485,8 +504,9 @@ def format_fallback_output_action(
     
     start_thinking("Structuring available data with fallback")
     try:
+        finalizer_model = get_finalizer_model(model, config)
         formatted_output = query_llm_for_model(
-            prompt, model, output_format, api_key, verbose=verbose
+            prompt, finalizer_model, output_format, api_key, verbose=verbose
         )
     finally:
         stop_thinking()
@@ -499,6 +519,7 @@ def finalize_action(
     api_key: Optional[str],
     output_format: Optional[Type[BaseModel]],
     verbose: bool = False,
+    config: Optional[AgentModelConfig] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """Finalizes the output: structures via schema if provided, else free-form LLM summary."""
     print_retro_status("FINALIZE", "Generating final response...")
@@ -507,7 +528,7 @@ def finalize_action(
         # Use structured formatting
         try:
             formatted_output = format_output_action(
-                state, model, api_key, output_format, verbose=verbose
+                state, model, api_key, output_format, verbose=verbose, config=config
             )
             state["final_output"] = formatted_output[1]  # Update state
             print_retro_status("SUCCESS", "Output formatted successfully")
@@ -524,7 +545,8 @@ def finalize_action(
     )
     start_thinking("Generating final result")
     try:
-        response = query_llm(prompt, model, api_key, verbose=verbose)
+        finalizer_model = get_finalizer_model(model, config)
+        response = query_llm(prompt, finalizer_model, api_key, verbose=verbose)
         final_result = response.params.get("content") or response.reasoning
         state["final_output"] = final_result
         print_retro_status("SUCCESS", "Free-form result generated")
