@@ -728,6 +728,23 @@ def run_agent(
                     )
                     summary_result = store.state.data.get("summary")
                     if summary_result:
+                        # After summarize, automatically run evaluate to check if goal was achieved
+                        print_retro_status("AUTO_EVAL", "Auto-evaluating after summarization...")
+                        state_machine.transition(ActionType.EVALUATE)  # Update state machine for auto-eval
+                        store.dispatch(
+                            lambda state: goal_evaluation_action(
+                                state,
+                                model,
+                                api_key,
+                                tools=store.tools,
+                                conversation_history=store.conversation_history,
+                                verbose=verbose,
+                                store=store,
+                            ),
+                            verbose=verbose,
+                        )
+                        evaluation_result = store.state.data.get("evaluation", {})
+
                         # Format output using fallback action if output_format is provided
                         formatted_result = None
                         if output_format:
@@ -759,7 +776,7 @@ def run_agent(
                             "max_iterations": max_iterations,
                             "formatted_output": formatted_result is not None,
                         }
-
+                        
                 except Exception as e:
                     print_retro_status("ERROR", f"Summarizer fallback failed: {str(e)}")
                     if verbose:
