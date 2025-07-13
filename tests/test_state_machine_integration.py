@@ -54,7 +54,8 @@ class TestStateMachineIntegration:
         # Mock responses - only need one summarize, auto-evaluate will be triggered
         mock_responses = [
             '{"action": "execute", "params": {"tool": "data_tool", "args": {}}, "reasoning": "Collecting data"}',
-            '{"action": "summarize", "params": {}, "reasoning": "Summarizing results"}'
+            '{"action": "summarize", "params": {}, "reasoning": "Summarizing results"}',
+            '{"action": "finalize", "params": {}, "reasoning": "Finalizing results"}'
         ]
         
         mock_adapter = MockLLMAdapter(responses=mock_responses)
