@@ -85,19 +85,41 @@ def query_llm(
             try:
                 # Try parsing as-is first
                 return StructuredResponse.model_validate_json(json_str)
-            except (ValidationError, json.JSONDecodeError):
+            except (ValidationError, json.JSONDecodeError) as e:
+                if verbose:
+                    print(f"[ERROR] Initial JSON parsing failed: {e}")
+                
                 # Try fixing single quotes to double quotes as a fallback
                 try:
                     import re
                     # Replace single quotes with double quotes for JSON keys and string values
-                    # This is a simple fix for the most common issue
                     fixed_json = re.sub(r"'([^']*)':", r'"\1":', json_str)  # Fix keys
                     fixed_json = re.sub(r": '([^']*)'", r': "\1"', fixed_json)  # Fix string values
                     if verbose:
-                        print(f"[RESPONSE] Attempting with fixed JSON: {fixed_json}")
+                        print(f"[RESPONSE] Attempting with fixed quotes: {fixed_json}")
                     return StructuredResponse.model_validate_json(fixed_json)
                 except (ValidationError, json.JSONDecodeError):
-                    # If both attempts fail, let the original exception bubble up
+                    # Try parsing as raw JSON and wrapping in correct structure
+                    try:
+                        import json
+                        parsed = json.loads(json_str)
+                        
+                        # If it's already a dict but missing required fields, try to fix it
+                        if isinstance(parsed, dict):
+                            if "action" not in parsed:
+                                # Wrap the response in the expected structure
+                                wrapped_response = {
+                                    "action": "summarize",  # Default action
+                                    "params": parsed,
+                                    "reasoning": "Auto-wrapped response from LLM"
+                                }
+                                if verbose:
+                                    print(f"[RESPONSE] Wrapping response: {json.dumps(wrapped_response)}")
+                                return StructuredResponse.model_validate(wrapped_response)
+                    except (json.JSONDecodeError, ValidationError):
+                        pass
+                    
+                    # If all attempts fail, let the original exception bubble up
                     return StructuredResponse.model_validate_json(json_str)
 
         except (
