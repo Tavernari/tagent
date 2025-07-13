@@ -2,7 +2,7 @@
 # Integration with LiteLLM for real LLM calls, leveraging JSON Mode.
 # Requirements: pip install pydantic litellm
 
-from typing import Dict, Any, Optional, Callable, Type, Union
+from typing import Dict, Any, Optional, Callable, Type, Union, Tuple
 from pydantic import BaseModel, Field
 import json
 import time
@@ -125,6 +125,106 @@ def _generate_and_show_step_summary(
             print(f"[DEBUG] Step summary generation failed: {e}")
 
 
+def _execute_llm_fallback(
+    state: Dict[str, Any],
+    tool_name: str,
+    tool_args: Dict[str, Any],
+    model_selector: AgentModelSelector,
+    verbose: bool = False,
+) -> Optional[Tuple[str, Any]]:
+    """
+    Execute a fallback LLM query when a requested tool is not found.
+    
+    This allows the agent to handle requests that don't require external tools
+    by using the LLM's knowledge directly.
+    
+    Args:
+        state: Current agent state
+        tool_name: Name of the tool that was requested but not found
+        tool_args: Arguments that were intended for the tool
+        model_selector: Model selector for LLM access
+        verbose: Whether to show debug output
+        
+    Returns:
+        Tuple of (key, value) for state update, or None if failed
+    """
+    try:
+        # Construct a prompt that explains what was requested
+        args_text = ", ".join([f"{k}='{v}'" for k, v in tool_args.items()]) if tool_args else "no arguments"
+        
+        fallback_prompt = (
+            f"You are acting as a replacement for a tool called '{tool_name}' that is not available. "
+            f"The tool was called with {args_text}. "
+            f"Current goal: {state.get('goal', 'No specific goal set')}\n"
+            f"Available data: {json.dumps({k: v for k, v in state.items() if k != 'goal'}, indent=2)}\n"
+            f"Tool arguments: {json.dumps(tool_args, indent=2) if tool_args else 'None'}\n\n"
+            f"Please provide the specific output that the '{tool_name}' tool would have generated. "
+            f"Focus on providing direct, actionable content rather than describing what you would do. "
+            f"Your response should be the actual result, not a meta-description of the task."
+        )
+        
+        if verbose:
+            print(f"[LLM_FALLBACK] Querying LLM for tool '{tool_name}' with prompt: {fallback_prompt[:100]}...")
+        
+        # For fallback, use a simple text query instead of structured output
+        try:
+            import litellm
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant. Provide direct, actionable answers without meta-commentary."},
+                {"role": "user", "content": fallback_prompt}
+            ]
+            
+            response = litellm.completion(
+                model=model_selector.get_executor_model(),
+                messages=messages,
+                api_key=model_selector.get_api_key(),
+                temperature=0.7
+            )
+            
+            llm_result = response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            if verbose:
+                print(f"[LLM_FALLBACK] Direct LLM call failed, trying structured: {e}")
+            
+            # Fallback to structured response if direct call fails
+            response = query_llm(
+                fallback_prompt,
+                model_selector.get_executor_model(),
+                model_selector.get_api_key(),
+                tools={},  # No tools for fallback
+                conversation_history=[],  # Clean context for focused response
+                verbose=verbose,
+            )
+            
+            # Extract the response content - for fallback, we want the reasoning/content, not action
+            if hasattr(response, 'reasoning') and response.reasoning:
+                llm_result = response.reasoning
+            elif hasattr(response, 'action') and response.action:
+                llm_result = response.action
+            else:
+                llm_result = str(response)
+        
+        # Store the result with a descriptive key
+        result_key = f"{tool_name}_llm_response"
+        return (result_key, {
+            "tool_name": tool_name,
+            "requested_args": tool_args,
+            "llm_response": llm_result,
+            "source": "llm_fallback",
+            "timestamp": time.time()
+        })
+        
+    except Exception as e:
+        if verbose:
+            print(f"[LLM_FALLBACK] Error during fallback execution: {e}")
+        return (f"{tool_name}_fallback_error", {
+            "tool_name": tool_name,
+            "error": str(e),
+            "source": "llm_fallback_error"
+        })
+
+
 # === Main Agent Loop ===
 def run_agent(
     goal: str,
@@ -201,6 +301,36 @@ def run_agent(
         for name, tool_func in tools.items():
             store.register_tool(name, tool_func)
             print_retro_status("TOOL_REG", f"[{name}] loaded successfully")
+    else:
+        # No tools available - check if this is a simple question that can be answered directly
+        simple_question_indicators = ["what is", "who is", "where is", "when is", "how is", "which is", "why is"]
+        goal_lower = goal.lower()
+        
+        if any(indicator in goal_lower for indicator in simple_question_indicators):
+            print_retro_status("DIRECT_ANSWER", "No tools available - attempting direct LLM response...")
+            try:
+                import litellm
+                messages = [
+                    {"role": "system", "content": "You are a helpful assistant. Provide direct, accurate answers to questions."},
+                    {"role": "user", "content": goal}
+                ]
+                
+                response = litellm.completion(
+                    model=model_selector.get_global_model(),
+                    messages=messages,
+                    api_key=model_selector.get_api_key(),
+                    temperature=0.3
+                )
+                
+                direct_answer = response.choices[0].message.content.strip()
+                store.state.data["direct_answer"] = direct_answer
+                store.state.data["achieved"] = True
+                print_retro_status("SUCCESS", "Direct answer provided - goal achieved")
+                
+            except Exception as e:
+                if verbose:
+                    print(f"[DEBUG] Direct answer failed: {e}")
+                print_retro_status("WARNING", "Direct answer failed - proceeding with normal flow")
 
     print_retro_banner("STARTING MAIN LOOP", "~", color=Colors.BRIGHT_GREEN)
     iteration = 0
@@ -340,17 +470,72 @@ def run_agent(
         # Check if only one action is allowed - if so, follow the single path automatically
         if len(allowed_actions) == 1:
             forced_action = list(allowed_actions)[0]
-            print_retro_status("STATE_AUTO", f"Single path available: {forced_action.value} - following automatically")
             
-            # Set appropriate params based on action type
-            params = {}
-            if forced_action == ActionType.EXECUTE:
-                # For execute, we need to pick a tool - get the first available unused tool
-                if unused_tools:
-                    params = {"tool": unused_tools[0], "args": {}}
-                elif store.tools:
-                    # If all tools used, pick the first one
-                    params = {"tool": list(store.tools.keys())[0], "args": {}}
+            # Special handling when no tools are available and action is EXECUTE
+            if forced_action == ActionType.EXECUTE and not store.tools:
+                # Check if we already have a direct response to avoid repeating
+                if store.state.data.get("llm_direct_response") and store.state.data.get("achieved"):
+                    # Goal already achieved with direct response - move to finalize
+                    forced_action = ActionType.FINALIZE
+                    params = {}
+                    print_retro_status("FINALIZE_AUTO", "Goal already achieved - proceeding to finalize")
+                else:
+                    # Instead of executing nothing, use LLM fallback directly for simple goals
+                    simple_question_indicators = ["translate", "what is", "who is", "where is", "when is", "how is", "which is", "why is"]
+                    goal_lower = goal.lower()
+                    
+                    if any(indicator in goal_lower for indicator in simple_question_indicators):
+                        print_retro_status("DIRECT_LLM", "No tools available - providing direct LLM response...")
+                        try:
+                            import litellm
+                            messages = [
+                                {"role": "system", "content": "You are a helpful assistant. Provide direct, accurate responses."},
+                                {"role": "user", "content": goal}
+                            ]
+                            
+                            response = litellm.completion(
+                                model=model_selector.get_global_model(),
+                                messages=messages,
+                                api_key=model_selector.get_api_key(),
+                                temperature=0.3
+                            )
+                            
+                            direct_response = response.choices[0].message.content.strip()
+                            store.state.data["llm_direct_response"] = direct_response
+                            store.state.data["achieved"] = True
+                            
+                            # Add to conversation history
+                            observation = f"Direct LLM response: {direct_response}"
+                            store.add_to_conversation("user", observation)
+                            
+                            print_retro_status("SUCCESS", "Direct response provided - goal achieved")
+                            
+                            # Force to evaluation to check completion
+                            forced_action = ActionType.EVALUATE
+                            params = {}
+                            
+                        except Exception as e:
+                            if verbose:
+                                print(f"[DEBUG] Direct LLM failed: {e}")
+                            print_retro_status("WARNING", "Direct LLM failed - proceeding with summarization")
+                            forced_action = ActionType.SUMMARIZE
+                            params = {}
+                    else:
+                        # Not a simple question - force summarization to wrap up
+                        forced_action = ActionType.SUMMARIZE
+                        params = {}
+            else:
+                # Normal execution path
+                params = {}
+                if forced_action == ActionType.EXECUTE:
+                    # For execute, we need to pick a tool
+                    if unused_tools:
+                        params = {"tool": unused_tools[0], "args": {}}
+                    elif store.tools:
+                        # If all tools used, pick the first one
+                        params = {"tool": list(store.tools.keys())[0], "args": {}}
+            
+            print_retro_status("STATE_AUTO", f"Single path available: {forced_action.value} - following automatically")
                     
             decision = type('MockDecision', (), {
                 'action': forced_action.value,
@@ -538,13 +723,58 @@ def run_agent(
                 # Update state machine AFTER successful execution
                 state_machine.transition(action_type)
             else:
-                print_retro_status("ERROR", f"Tool not found: {tool_name}")
-                observation = f"Error: Tool {tool_name} not found."
-                store.add_to_conversation("user", observation)
+                print_retro_status("LLM_FALLBACK", f"Tool '{tool_name}' not found - using LLM fallback")
                 if verbose:
                     print(
-                        f"[ERROR] Tool not found: {tool_name}. Available tools: {list(store.tools.keys())}"
+                        f"[LLM_FALLBACK] Tool not found: {tool_name}. Available tools: {list(store.tools.keys())}. Attempting LLM fallback..."
                     )
+                
+                # Try to fulfill the request using LLM fallback
+                fallback_result = _execute_llm_fallback(
+                    store.state.data, 
+                    tool_name, 
+                    tool_args, 
+                    model_selector, 
+                    verbose
+                )
+                
+                if fallback_result:
+                    # Update state with fallback result
+                    key, value = fallback_result
+                    store.state.data[key] = value
+                    
+                    # Track that we used a fallback (not a real tool)
+                    used_tools = store.state.data.get("used_tools", [])
+                    fallback_tool_name = f"{tool_name}_llm_fallback"
+                    if fallback_tool_name not in used_tools:
+                        used_tools.append(fallback_tool_name)
+                        store.state.data["used_tools"] = used_tools
+                    
+                    # Add result to conversation history
+                    try:
+                        fallback_output = json.dumps(value, indent=2)
+                    except Exception:
+                        fallback_output = str(value)
+                    
+                    observation = f"LLM Fallback for tool '{tool_name}': {fallback_output}"
+                    store.add_to_conversation("user", observation)
+                    
+                    print_retro_status(
+                        "SUCCESS",
+                        f"LLM fallback for '{tool_name}' completed successfully"
+                    )
+                    # Generate step summary for fallback
+                    fallback_result_desc = f"LLM fallback for tool '{tool_name}' executed - response generated and stored"
+                    _generate_and_show_step_summary(
+                        "execute", decision.reasoning, fallback_result_desc, model_selector, verbose
+                    )
+                    # Update state machine AFTER successful fallback execution
+                    state_machine.transition(action_type)
+                else:
+                    # Fallback failed, use original error behavior
+                    observation = f"Error: Tool '{tool_name}' not found and LLM fallback failed."
+                    store.add_to_conversation("user", observation)
+                    print_retro_status("ERROR", f"Tool '{tool_name}' not found and fallback failed")
         elif decision.action == "summarize":
             print_retro_status("SUMMARIZE", "Generating progress summary...")
             store.dispatch(

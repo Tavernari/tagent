@@ -90,8 +90,9 @@ class AgentStateMachine:
             StateTransitionRule(AgentState.SUMMARIZING, ActionType.EVALUATE, AgentState.EVALUATING),
             StateTransitionRule(AgentState.SUMMARIZING, ActionType.EXECUTE, AgentState.EXECUTING),
             
-            # From EVALUATING state - returns to PLAN (mandatory)
+            # From EVALUATING state - can go to PLAN, EXECUTE, or FINALIZE
             StateTransitionRule(AgentState.EVALUATING, ActionType.PLAN, AgentState.PLANNING),
+            StateTransitionRule(AgentState.EVALUATING, ActionType.EXECUTE, AgentState.EXECUTING),
             StateTransitionRule(AgentState.EVALUATING, ActionType.FINALIZE, AgentState.FINALIZING),
 
             # From FINALIZING state - must go to COMPLETED (mandatory)
@@ -158,6 +159,12 @@ class AgentStateMachine:
             
             # Allow evaluate if we have either a summary OR sufficient data
             if not (has_summary or has_sufficient_data):
+                return False
+        
+        # Rule 3: Should only FINALIZE when goal is actually achieved
+        if action == ActionType.FINALIZE:
+            goal_achieved = agent_data.get("achieved", False)
+            if not goal_achieved:
                 return False
         
         return True

@@ -1,7 +1,12 @@
 import requests
-import xml.etree.ElementTree as ET
 from typing import Dict, Any, Optional, Tuple
+from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
+
+from tagent import run_agent
+
+# === Tools ===
 
 
 def extract_tabnews_articles(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
@@ -108,3 +113,73 @@ def load_and_process_url(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[s
     except requests.exceptions.RequestException as e:
         # Captura erros de rede (DNS, conexão, timeout, etc.)
         return ("url_content", {"error": f"Falha ao buscar a URL: {e}"})
+
+def translate(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[str, Dict[str, str]]:
+    """
+    Translates text from one language to another using direct LLM call.
+
+    Args:
+        state: State of the agent (not used here, but required by the interface)
+        args: Arguments 
+        - text: Text to translate
+        - target_language: Target language for translation
+    Returns:
+        A tuple containing the name of the state variable to update and a dictionary with the translated text
+    """
+    text = args.get("text", "")
+    target_language = args.get("target_language", "")
+    
+    if not text or not target_language:
+        return ("translation", {"error": "Both text and target_language are required"})
+
+    try:
+        import litellm
+        messages = [
+            {"role": "system", "content": "You are a professional translator. Provide accurate translations without additional commentary."},
+            {"role": "user", "content": f"Translate the following text to {target_language}: {text}"}
+        ]
+        
+        response = litellm.completion(
+            model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+            messages=messages,
+            temperature=0.3
+        )
+        
+        translation = response.choices[0].message.content.strip()
+        return ("translation", {"translation": translation, "original_text": text, "target_language": target_language})
+        
+    except Exception as e:
+        return ("translation", {"error": f"Translation failed: {str(e)}"})
+    
+
+# === Output Models ===
+
+class TabNewsRecentsPostSummaries(BaseModel):
+    original_summary: str = Field(..., description="Original summary of the post")
+    translated_summary: str = Field(..., description="Translated summary of the post")
+    
+
+# === Simple Test ===
+
+run_agent_response = run_agent(
+    goal="Load articles from tabnews, select just one to load summarize and translate to chinese. It is not required to load all articles.",
+    model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+    tools={
+        "extract_tabnews_articles": extract_tabnews_articles,
+        "load_url_content": load_and_process_url,
+        "translate": translate
+    },
+    output_format=TabNewsRecentsPostSummaries,
+    max_iterations=30,
+    verbose=False
+)
+
+result = run_agent_response.get("result")
+
+print("--- TabNews Article ---\n")
+print("Original Summary:\n")
+print(result.original_summary)
+print("\nTranslated Summary:\n")
+print(result.translated_summary)
+
+
