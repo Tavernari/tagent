@@ -9,6 +9,7 @@ import litellm
 
 from .models import StructuredResponse
 from .utils import get_tool_documentation
+from .llm_adapter import query_llm_with_adapter
 
 # Enable verbose debug for LLM calls
 litellm.log_raw_request_response = False
@@ -24,117 +25,18 @@ def query_llm(
     verbose: bool = False,
 ) -> StructuredResponse:
     """
-    Queries an LLM via LiteLLM and enforces structured output (JSON).
-    Checks response_format support dynamically.
+    Queries an LLM via adapter pattern and enforces structured output (JSON).
+    Uses adapter for easier testing and mocking.
     """
-    system_message = {
-        "role": "system",
-        "content": "You are a helpful assistant designed to output JSON. For 'evaluate' actions, include specific feedback. Example: {\"action\": \"execute\", \"params\": {\"tool\": \"tool_name\", \"args\": {\"parameter\": \"value\"}}, \"reasoning\": \"Reason to execute the action.\"} or {\"action\": \"evaluate\", \"params\": {\"achieved\": false, \"missing_items\": [\"item1\", \"item2\"], \"suggestions\": [\"suggestion1\"]}, \"reasoning\": \"Detailed explanation of what is missing and why goal is not achieved.\"}",
-    }
-
-    # Use detailed tool documentation if available
-    available_tools = ""
-    if tools:
-        available_tools = get_tool_documentation(tools)
-
-    user_message = {
-        "role": "user",
-        "content": (
-            f"{prompt}\n\n"
-            f"{available_tools}"
-            "When using 'execute' action, choose the most appropriate tool based on its documentation. "
-            "Ensure 'params' contains 'tool' (tool name) and 'args' (parameters matching the tool's signature).\n"
-            "When using 'evaluate' action, if goal is NOT achieved, include 'missing_items' and 'suggestions' in params.\n"
-            "Respond ONLY with a valid JSON in the format: "
-            "{\"action\": str (plan|execute|summarize|evaluate), \"params\": dict, \"reasoning\": str}."
-            "Use double quotes for JSON strings, not single quotes. Do not add extra text."
-        ),
-    }
-
-    # Build messages including conversation history
-    messages = [system_message]
-
-    # Add conversation history if available
-    if conversation_history:
-        messages.extend(conversation_history)
-
-    # Add current user message
-    messages.append(user_message)
-
-    # Check if model supports response_format
-    supported_params = litellm.get_supported_openai_params(model=model)
-    response_format = (
-        {"type": "json_object"} if "response_format" in supported_params else None
+    return query_llm_with_adapter(
+        prompt=prompt,
+        model=model,
+        api_key=api_key,
+        max_retries=max_retries,
+        tools=tools,
+        conversation_history=conversation_history,
+        verbose=verbose,
     )
-
-    for attempt in range(max_retries):
-        try:
-            # Call via LiteLLM, passing api_key if provided
-            response = litellm.completion(
-                model=model,
-                messages=messages,
-                response_format=response_format,
-                temperature=0.0,
-                api_key=api_key,
-            )
-            json_str = response.choices[0].message.content.strip()
-            if verbose:
-                print(f"[RESPONSE] Raw LLM output: {json_str}")
-
-            # Attempt to fix common JSON formatting issues
-            try:
-                # Try parsing as-is first
-                return StructuredResponse.model_validate_json(json_str)
-            except (ValidationError, json.JSONDecodeError) as e:
-                if verbose:
-                    print(f"[ERROR] Initial JSON parsing failed: {e}")
-                
-                # Try fixing single quotes to double quotes as a fallback
-                try:
-                    import re
-                    # Replace single quotes with double quotes for JSON keys and string values
-                    fixed_json = re.sub(r"'([^']*)':", r'"\1":', json_str)  # Fix keys
-                    fixed_json = re.sub(r": '([^']*)'", r': "\1"', fixed_json)  # Fix string values
-                    if verbose:
-                        print(f"[RESPONSE] Attempting with fixed quotes: {fixed_json}")
-                    return StructuredResponse.model_validate_json(fixed_json)
-                except (ValidationError, json.JSONDecodeError):
-                    # Try parsing as raw JSON and wrapping in correct structure
-                    try:
-                        import json
-                        parsed = json.loads(json_str)
-                        
-                        # If it's already a dict but missing required fields, try to fix it
-                        if isinstance(parsed, dict):
-                            if "action" not in parsed:
-                                # Wrap the response in the expected structure
-                                wrapped_response = {
-                                    "action": "summarize",  # Default action
-                                    "params": parsed,
-                                    "reasoning": "Auto-wrapped response from LLM"
-                                }
-                                if verbose:
-                                    print(f"[RESPONSE] Wrapping response: {json.dumps(wrapped_response)}")
-                                return StructuredResponse.model_validate(wrapped_response)
-                    except (json.JSONDecodeError, ValidationError):
-                        pass
-                    
-                    # If all attempts fail, let the original exception bubble up
-                    return StructuredResponse.model_validate_json(json_str)
-
-        except (
-            litellm.AuthenticationError,
-            litellm.APIError,
-            litellm.ContextWindowExceededError,
-            ValidationError,
-            json.JSONDecodeError,
-        ) as e:
-            if verbose:
-                print(f"[ERROR] Attempt {attempt + 1}/{max_retries} failed: {e}")
-            if attempt == max_retries - 1:
-                raise ValueError("Failed to get valid structured output after retries")
-
-    raise ValueError("Max retries exceeded")
 
 
 def query_llm_for_model(

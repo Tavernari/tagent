@@ -16,7 +16,8 @@ TAgent is a production-ready framework for creating AI agents with modular, reus
 - 🏗️ **Modular Architecture** - Reusable tools across different projects
 - 📋 **Dynamic Schema Loading** - Pydantic schemas from `tagent.output.py` files
 - 🚀 **Production CLI** - Professional command-line interface with console scripts
-- 🔄 **Intelligent Agent Loop** - Adaptive planning, execution, and evaluation
+- 🔄 **Intelligent Agent Loop** - State machine-controlled adaptive planning, execution, and evaluation
+- 🎯 **State Machine Control** - Prevents infinite loops and enforces logical action sequences
 - 🛠️ **Rich Tool Ecosystem** - Travel planning, e-commerce, and custom tools
 - 🎯 **Type-Safe Output** - Structured results with Pydantic validation
 - 📝 **Comprehensive Logging** - Beautiful retro-style terminal output

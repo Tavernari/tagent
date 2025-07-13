@@ -2,6 +2,8 @@
 
 ## Development Guidelines
 
+Activate .venv first of all.
+
 Always write code and comments in technical English. This ensures:
 - International collaboration compatibility
 - Clear technical communication
@@ -26,6 +28,7 @@ Always write code and comments in technical English. This ensures:
 ### Architecture Principles
 - Modular design with clear separation of concerns
 - Redux-inspired state management pattern
+- State machine-controlled action flow to prevent infinite loops
 - Structured outputs over function calls for LLM compatibility
 - Type-safe operations with Pydantic validation
 - Production-ready error handling and logging
@@ -71,3 +74,23 @@ def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional
 - Document error conditions and edge cases
 - Provide architectural context where relevant
 - Use technical English throughout
+
+## State Machine Architecture (v0.3.0)
+
+### Mandatory Action Flow
+The agent follows a strict state machine to prevent infinite loops:
+
+```
+INITIAL → PLAN (mandatory)
+PLAN → EXECUTE (mandatory) 
+EXECUTE → PLAN | EXECUTE | SUMMARIZE (AI chooses)
+SUMMARIZE → EVALUATE (mandatory)
+EVALUATE → PLAN (mandatory, returns to cycle)
+```
+
+### Key Features
+- **Automatic Path Following**: Single valid actions execute automatically
+- **AI Decision Points**: Multiple options allow AI to choose the best path
+- **Loop Prevention**: State transitions prevent SUMMARIZE→SUMMARIZE and EVALUATE→EVALUATE
+- **Auto-Execution**: SUMMARIZE automatically triggers EVALUATE, failed EVALUATE triggers PLAN
+- **Controlled Flow**: LLM choices are constrained to valid state transitions only

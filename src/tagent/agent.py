@@ -26,6 +26,7 @@ from .ui import (
     Colors,
 )
 from .utils import detect_action_loop, format_conversation_as_chat
+from .state_machine import AgentStateMachine, ActionType
 
 
 # === Main Agent Loop ===
@@ -66,6 +67,9 @@ def run_agent(
     )
 
     store = Store({"goal": goal, "results": [], "used_tools": []})
+    
+    # Initialize state machine to control valid action transitions
+    state_machine = AgentStateMachine()
 
     # Infinite loop protection system
     consecutive_failures = 0
@@ -215,37 +219,67 @@ def run_agent(
                 "Address missing items and suggestions from the evaluator."
             )
 
-        prompt = (
-            f"Goal: {goal}\n"
-            f"Current state: {store.state.data}\n"
-            f"{progress_summary}\n"
-            f"Step {iteration}/{max_iterations}. {step_warning}\n"
-            f"Used tools: {used_tools}\n"
-            f"Unused tools: {unused_tools}\n"
-            f"{evaluation_feedback}"
-            f"{strategy_hint}"
-            f"{avoid_evaluate_hint}"
-            "For 'execute' action, prefer UNUSED tools to gather different types of data. "
-            "If goal evaluation fails, DO NOT immediately evaluate again - try other actions first. "
-            "Only use 'evaluate' after making changes or gathering new data. "
-            "Available actions: plan, execute, summarize, evaluate"
-        )
-        # Add current prompt to history
-        store.add_to_conversation("user", prompt)
+        # Get allowed actions from state machine
+        allowed_actions = state_machine.get_allowed_actions(store.state.data)
+        allowed_action_names = [action.value for action in allowed_actions]
+        
+        # Check if only one action is allowed - if so, follow the single path automatically
+        if len(allowed_actions) == 1:
+            forced_action = list(allowed_actions)[0]
+            print_retro_status("STATE_AUTO", f"Single path available: {forced_action.value} - following automatically")
+            
+            # Set appropriate params based on action type
+            params = {}
+            if forced_action == ActionType.EXECUTE:
+                # For execute, we need to pick a tool - get the first available unused tool
+                if unused_tools:
+                    params = {"tool": unused_tools[0], "args": {}}
+                elif store.tools:
+                    # If all tools used, pick the first one
+                    params = {"tool": list(store.tools.keys())[0], "args": {}}
+                    
+            decision = type('MockDecision', (), {
+                'action': forced_action.value,
+                'params': params,
+                'reasoning': f"Following single available path: {forced_action.value}"
+            })()
+            action_type = forced_action
+            skip_llm_query = True
+        else:
+            # Let AI decide when multiple paths are available
+            skip_llm_query = False
+            prompt = (
+                f"Goal: {goal}\n"
+                f"Current state: {store.state.data}\n"
+                f"{progress_summary}\n"
+                f"Step {iteration}/{max_iterations}. {step_warning}\n"
+                f"Used tools: {used_tools}\n"
+                f"Unused tools: {unused_tools}\n"
+                f"{evaluation_feedback}"
+                f"{strategy_hint}"
+                f"{avoid_evaluate_hint}"
+                "For 'execute' action, prefer UNUSED tools to gather different types of data. "
+                "If goal evaluation fails, DO NOT immediately evaluate again - try other actions first. "
+                "Only use 'evaluate' after making changes or gathering new data. "
+                f"IMPORTANT: You can choose from these available actions: {allowed_action_names}. "
+                "Choose the best action for the current context."
+            )
+            # Add current prompt to history
+            store.add_to_conversation("user", prompt)
 
-        print_retro_status("THINKING", "Consulting AI for next action...")
-        start_thinking("Thinking")
-        try:
-            decision = query_llm(
-                prompt,
-                model,
-                api_key,
-                tools=store.tools,
-                conversation_history=store.conversation_history[:-1],
-                verbose=verbose,
-            )  # Exclude last message to avoid duplication
-        finally:
-            stop_thinking()
+            print_retro_status("THINKING", "Consulting AI for next action...")
+            start_thinking("Thinking")
+            try:
+                decision = query_llm(
+                    prompt,
+                    model,
+                    api_key,
+                    tools=store.tools,
+                    conversation_history=store.conversation_history[:-1],
+                    verbose=verbose,
+                )  # Exclude last message to avoid duplication
+            finally:
+                stop_thinking()
 
         # Generate concise step title using LLM
         step_title = generate_step_title(
@@ -255,7 +289,27 @@ def run_agent(
         if verbose:
             print(f"[DECISION] LLM decided: {decision}")
 
-        # Track recent actions to detect loops
+        # Validate action with state machine BEFORE tracking (only if not auto-selected)
+        if not skip_llm_query:
+            try:
+                action_type = ActionType(decision.action)
+            except ValueError:
+                if verbose:
+                    print(f"[WARNING] Unknown action type: {decision.action}, defaulting to plan")
+                action_type = ActionType.PLAN
+                decision.action = "plan"
+
+            # Check if action is allowed by state machine
+            if not state_machine.is_action_allowed(action_type, store.state.data):
+                forced_action = state_machine.get_forced_action(action_type, store.state.data)
+                if verbose:
+                    print(f"[STATE_MACHINE] Action {decision.action} not allowed, forcing {forced_action.value}")
+                print_retro_status("STATE_CTRL", f"Forced {forced_action.value} (was {decision.action})")
+                decision.action = forced_action.value
+                decision.reasoning = f"State machine forced {forced_action.value} to prevent invalid transition"
+                action_type = forced_action
+
+        # Track recent actions to detect loops (AFTER validation)
         recent_actions.append(decision.action)
         if len(recent_actions) > max_recent_actions:
             recent_actions.pop(0)  # Keep only the latest actions
@@ -290,6 +344,8 @@ def run_agent(
                 ),
                 verbose=verbose,
             )
+            # Update state machine AFTER successful execution
+            state_machine.transition(action_type)
         elif decision.action == "execute":
             # Extract tool and args from the main decision
             tool_name = decision.params.get("tool")
@@ -341,6 +397,8 @@ def run_agent(
                         "WARNING",
                         f"Tool {tool_name} returned no result. Observation added.",
                     )
+                # Update state machine AFTER successful execution
+                state_machine.transition(action_type)
             else:
                 print_retro_status("ERROR", f"Tool not found: {tool_name}")
                 observation = f"Error: Tool {tool_name} not found."
@@ -362,6 +420,25 @@ def run_agent(
                 ),
                 verbose=verbose,
             )
+            # Update state machine AFTER successful execution
+            state_machine.transition(action_type)
+            
+            # After summarize, automatically run evaluate to check if goal was achieved
+            if store.state.data.get("summary"):
+                print_retro_status("AUTO_EVAL", "Auto-evaluating after summarization...")
+                state_machine.transition(ActionType.EVALUATE)  # Update state machine for auto-eval
+                store.dispatch(
+                    lambda state: goal_evaluation_action(
+                        state,
+                        model,
+                        api_key,
+                        tools=store.tools,
+                        conversation_history=store.conversation_history,
+                        verbose=verbose,
+                        store=store,
+                    ),
+                    verbose=verbose,
+                )
         elif decision.action == "evaluate":
             print_retro_status("EVALUATE", "Evaluating if goal was achieved...")
             # Store previous state to detect change
@@ -378,6 +455,8 @@ def run_agent(
                 ),
                 verbose=verbose,
             )
+            # Update state machine AFTER successful execution
+            state_machine.transition(action_type)
 
             # Check evaluation result and get detailed feedback
             current_achieved = store.state.data.get("achieved", False)
@@ -393,6 +472,21 @@ def run_agent(
                 )
                 missing_items = evaluation_result.get("missing_items", [])
                 suggestions = evaluation_result.get("suggestions", [])
+                
+                # Auto-trigger PLAN after failed evaluation to use feedback
+                print_retro_status("AUTO_PLAN", "Auto-planning after evaluation feedback...")
+                store.dispatch(
+                    lambda state: plan_action(
+                        state,
+                        model,
+                        api_key,
+                        tools=store.tools,
+                        conversation_history=store.conversation_history,
+                        verbose=verbose,
+                    ),
+                    verbose=verbose,
+                )
+                state_machine.transition(ActionType.PLAN)  # Update state machine AFTER execution
 
                 # Show evaluator rejection message with specific reason
                 if consecutive_failures == 1:

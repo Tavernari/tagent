@@ -168,13 +168,13 @@ def search_hotels_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[
     except ValueError:
         num_nights = 6  # Fallback silencioso
 
-    # Fake data e filtro (o resto igual ao original)
-    all_hotels = [  # Lista de hotéis fake, como no original
+    # Fake data and filter (rest same as original)
+    all_hotels = [  # Fake hotel list, like in the original
         HotelOption(name="Four Seasons Paris", location="Paris Champs-Élysées", price_per_night=450.00, rating=4.8, amenities=["free wifi", "pool", "spa"]),
-        # ... (adicione o resto da lista do código original aqui)
+        # ... (add the rest of the list from original code here)
     ]
     
-    filtered_hotels = []  # Lógica de filtro igual ao original
+    filtered_hotels = []  # Filter logic same as original
     for h in all_hotels:
         if destination.lower() in h.location.lower() and h.price_per_night <= budget:
             if "luxury" in preferences and h.rating >= 4.5 and "spa" in h.amenities:
