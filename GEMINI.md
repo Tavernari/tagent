@@ -75,7 +75,7 @@ def search_flights_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional
 - Provide architectural context where relevant
 - Use technical English throughout
 
-## State Machine Architecture (v0.3.0)
+## State Machine Architecture (v0.3.1)
 
 ### Mandatory Action Flow
 The agent follows a strict state machine to prevent infinite loops:
