@@ -132,9 +132,7 @@ def summarize_action(
 
     prompt = (
         f"Based on the current state: {state}. Generate a detailed summary that "
-        f"fulfills the goal.{feedback_str}\n"
-        "Include calculations (e.g., total estimated cost based on stock and prices), "
-        "order predictions, and analysis. Make it comprehensive."
+        f"fulfills the goal.{feedback_str}"
     )
     start_thinking("Compiling summary")
     try:
@@ -335,3 +333,81 @@ def format_output_action(
         stop_thinking()
     print_retro_status("SUCCESS", "Result structured successfully")
     return ("final_output", formatted_output)
+
+
+def format_fallback_output_action(
+    state: Dict[str, Any],
+    model: str,
+    api_key: Optional[str],
+    output_format: Type[BaseModel],
+    verbose: bool = False,
+) -> Optional[Tuple[str, BaseModel]]:
+    """
+    Formats output with fallback handling for incomplete data.
+    
+    This function is designed to work even when the goal hasn't been fully achieved
+    or when max iterations are reached, ensuring the client always gets a structured
+    response according to the output schema.
+    """
+    print_retro_status("FORMAT_FALLBACK", "Structuring available data...")
+    goal = state.get("goal", "")
+    
+    prompt = (
+        f"Based on the current state: {state} and the original goal: '{goal}'. "
+        "IMPORTANT: The goal may not be fully achieved and data may be incomplete. "
+        "Extract and format ALL available data collected so far according to the output schema. "
+        "For missing required fields, provide reasonable defaults or indicate unavailability "
+        "(e.g., 'Data not available', 'Not collected', etc.). "
+        "Ensure ALL required schema fields are filled with the best available information. "
+        "Create meaningful summaries based on whatever data was successfully gathered."
+    )
+    
+    start_thinking("Structuring available data with fallback")
+    try:
+        formatted_output = query_llm_for_model(
+            prompt, model, output_format, api_key, verbose=verbose
+        )
+    finally:
+        stop_thinking()
+    print_retro_status("SUCCESS", "Fallback result structured successfully")
+    return ("final_output", formatted_output)
+
+def finalize_action(
+    state: Dict[str, Any],
+    model: str,
+    api_key: Optional[str],
+    output_format: Optional[Type[BaseModel]],
+    verbose: bool = False,
+) -> Optional[Tuple[str, BaseModel]]:
+    """Finalizes the output: structures via schema if provided, else free-form LLM summary."""
+    print_retro_status("FINALIZE", "Generating final response...")
+
+    if output_format:
+        # Use structured formatting
+        try:
+            formatted_output = format_output_action(
+                state, model, api_key, output_format, verbose=verbose
+            )
+            state["final_output"] = formatted_output[1]  # Update state
+            print_retro_status("SUCCESS", "Output formatted successfully")
+            return ("final_output", formatted_output[1])
+        except Exception as e:
+            print_retro_status("ERROR", f"Formatting failed: {str(e)}")
+            # Fallback to free-form if formatting fails
+            pass
+
+    # Free-form LLM-generated result if no schema or formatting failed
+    prompt = (
+        f"Goal: {state.get('goal', '')}\nCurrent state: {state}\n"
+        "Generate a final summary or result based on all collected data."
+    )
+    start_thinking("Generating final result")
+    try:
+        response = query_llm(prompt, model, api_key, verbose=verbose)
+        final_result = response.params.get("content") or response.reasoning
+        state["final_output"] = final_result
+        print_retro_status("SUCCESS", "Free-form result generated")
+        return ("final_output", final_result)
+    finally:
+        stop_thinking()
+    return None

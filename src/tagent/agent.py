@@ -15,6 +15,7 @@ from .actions import (
     summarize_action,
     goal_evaluation_action,
     format_output_action,
+    format_fallback_output_action,
 )
 from .ui import (
     print_retro_banner,
@@ -26,7 +27,7 @@ from .ui import (
     Colors,
 )
 from .utils import detect_action_loop, format_conversation_as_chat
-from .state_machine import AgentStateMachine, ActionType
+from .state_machine import AgentStateMachine, ActionType, AgentState
 
 
 # === Main Agent Loop ===
@@ -94,7 +95,7 @@ def run_agent(
     print_retro_banner("STARTING MAIN LOOP", "~", color=Colors.BRIGHT_GREEN)
     iteration = 0
     while (
-        not store.state.data.get("achieved", False)
+        state_machine.current_state not in [AgentState.COMPLETED, AgentState.FAILED]
         and iteration < max_iterations
         and consecutive_failures < max_consecutive_failures
     ):
@@ -223,6 +224,11 @@ def run_agent(
         allowed_actions = state_machine.get_allowed_actions(store.state.data)
         allowed_action_names = [action.value for action in allowed_actions]
         
+        # Add hint for finalizing
+        finalize_hint = ""
+        if store.state.data.get("achieved", False) and "finalize" in allowed_action_names:
+            finalize_hint = "CRITICAL: The goal has been achieved. You MUST use the 'finalize' action to complete the process."
+
         # Check if only one action is allowed - if so, follow the single path automatically
         if len(allowed_actions) == 1:
             forced_action = list(allowed_actions)[0]
@@ -258,6 +264,7 @@ def run_agent(
                 f"{evaluation_feedback}"
                 f"{strategy_hint}"
                 f"{avoid_evaluate_hint}"
+                f"{finalize_hint}"
                 "For 'execute' action, prefer UNUSED tools to gather different types of data. "
                 "If goal evaluation fails, DO NOT immediately evaluate again - try other actions first. "
                 "Only use 'evaluate' after making changes or gathering new data. "
@@ -462,7 +469,9 @@ def run_agent(
             current_achieved = store.state.data.get("achieved", False)
             evaluation_result = store.state.data.get("evaluation_result", {})
 
-            if not current_achieved and not previous_achieved:
+            if current_achieved:
+                 print_retro_status("SUCCESS", "Goal achieved! Ready to finalize.")
+            elif not current_achieved and not previous_achieved:
                 consecutive_failures += 1
                 evaluation_rejections += 1
 
@@ -576,8 +585,25 @@ def run_agent(
                             f"[FORCE] Forcing completion due to {consecutive_failures} consecutive failures with {current_data_count} data items"
                         )
                     store.state.data["achieved"] = True
+        elif decision.action == "finalize":
+            print_retro_status("FINALIZE", "Finalizing the result...")
+            state_machine.transition(action_type)  # To FINALIZING
+            if output_format:
+                try:
+                    store.dispatch(
+                        lambda state: format_output_action(
+                            state, model, api_key, output_format, verbose=verbose
+                        ),
+                        verbose=verbose,
+                    )
+                    state_machine.current_state = AgentState.COMPLETED
+                except Exception as e:
+                    print_retro_status("ERROR", f"Finalizing failed: {str(e)}")
+                    if verbose:
+                        print(f"[ERROR] Finalizing failed: {e}")
+                    state_machine.current_state = AgentState.FAILED
             else:
-                print_retro_status("SUCCESS", "Goal achieved!")
+                state_machine.current_state = AgentState.COMPLETED
         else:
             print_retro_status("ERROR", f"Unknown action: {decision.action}")
             if verbose:
@@ -596,59 +622,57 @@ def run_agent(
                 verbose=verbose,
             )
 
-    if store.state.data.get("achieved", False):
+    if state_machine.current_state == AgentState.COMPLETED:
         print_retro_banner("MISSION COMPLETE", "★", color=Colors.BRIGHT_GREEN)
         print_retro_status("SUCCESS", "Goal achieved successfully!")
         if verbose:
             print("[SUCCESS] Goal achieved!")
-        if output_format:
-            print_retro_status("FORMAT", "Formatting final result...")
-            if verbose:
-                print("[INFO] Formatting final output...")
-            try:
-                store.dispatch(
-                    lambda state: format_output_action(
-                        state, model, api_key, output_format, verbose=verbose
-                    ),
-                    verbose=verbose,
-                )
-
-                # Add conversation history to final result
-                final_result = store.state.data.get("final_output")
-                if final_result:
-                    print_retro_status("SUCCESS", "Result formatted successfully!")
-                    # Create result with chat history
-                    final_result_with_chat = {
-                        "result": final_result,
-                        "conversation_history": store.conversation_history,
-                        "chat_summary": format_conversation_as_chat(
-                            store.conversation_history
-                        ),
-                        "status": "completed_with_formatting",
-                    }
-                    return final_result_with_chat
-                return store.state.data.get("final_output")
-
-            except Exception as e:
-                print_retro_status("ERROR", f"Formatting failed: {str(e)}")
-                if verbose:
-                    print(f"[ERROR] Failed to format final output: {e}")
-                    print("[INFO] Returning raw collected data instead")
-
-                # Return collected data even without formatting
-                return {
-                    "result": None,
-                    "raw_data": store.state.data,
-                    "conversation_history": store.conversation_history,
-                    "chat_summary": format_conversation_as_chat(
-                        store.conversation_history
-                    ),
-                    "status": "completed_without_formatting",
-                    "error": f"Formatting failed: {str(e)}",
-                }
+        
+        final_result = store.state.data.get("final_output")
+        if final_result:
+            print_retro_status("SUCCESS", "Result formatted successfully!")
+            # Create result with chat history
+            final_result_with_chat = {
+                "result": final_result,
+                "conversation_history": store.conversation_history,
+                "chat_summary": format_conversation_as_chat(
+                    store.conversation_history
+                ),
+                "status": "completed_with_formatting",
+            }
+            return final_result_with_chat
+        elif output_format:
+             # Formatting failed, but we have an output format
+            print_retro_status("ERROR", "Formatting failed, returning raw data.")
+            return {
+                "result": None,
+                "raw_data": store.state.data,
+                "conversation_history": store.conversation_history,
+                "chat_summary": format_conversation_as_chat(
+                    store.conversation_history
+                ),
+                "status": "completed_without_formatting",
+                "error": "Formatting failed, but an output format was provided.",
+            }
+        else:
+            # No output format specified, return raw collected data
+            print_retro_status("SUCCESS", "Goal achieved! Returning collected data.")
+            return {
+                "result": None,
+                "raw_data": store.state.data,
+                "conversation_history": store.conversation_history,
+                "chat_summary": format_conversation_as_chat(
+                    store.conversation_history
+                ),
+                "status": "completed_without_formatting",
+            }
     else:
         # Determine stop reason
-        if consecutive_failures >= max_consecutive_failures:
+        if state_machine.current_state == AgentState.FAILED:
+            error_msg = "Agent failed during finalization."
+            print_retro_banner("MISSION FAILED", "!", color=Colors.BRIGHT_RED)
+            print_retro_status("ERROR", error_msg)
+        elif consecutive_failures >= max_consecutive_failures:
             error_msg = (
                 f"Stopped due to {consecutive_failures} consecutive evaluator failures"
             )
@@ -687,6 +711,10 @@ def run_agent(
 
                 # Call summarizer to preserve work done so far
                 try:
+                    # Update state machine to reflect we're moving to SUMMARIZE
+                    print_retro_status("STATE_AUTO", "Max iterations reached - forcing SUMMARIZE action")
+                    state_machine.transition(ActionType.SUMMARIZE)
+                    
                     store.dispatch(
                         lambda state: summarize_action(
                             state,
@@ -700,12 +728,28 @@ def run_agent(
                     )
                     summary_result = store.state.data.get("summary")
                     if summary_result:
-                        print_retro_status(
-                            "SUCCESS",
-                            "Summary generated successfully despite iteration limit",
-                        )
+                        # Format output using fallback action if output_format is provided
+                        formatted_result = None
+                        if output_format:
+                            try:
+                                print_retro_status("FORMAT_FALLBACK", "Applying output schema to available data...")
+                                store.dispatch(
+                                    lambda state: format_fallback_output_action(
+                                        state, model, api_key, output_format, verbose=verbose
+                                    ),
+                                    verbose=verbose,
+                                )
+                                formatted_result = store.state.data.get("final_output")
+                                print_retro_status("SUCCESS", "Output structured despite incomplete goal!")
+                            except Exception as e:
+                                print_retro_status("WARNING", f"Fallback formatting failed: {str(e)}")
+                                if verbose:
+                                    print(f"[WARNING] Fallback formatting failed: {e}")
+
                         return {
-                            "result": summary_result,
+                            "result": formatted_result or summary_result,
+                            "evaluation": evaluation_result,
+                            "raw_data": store.state.data,
                             "conversation_history": store.conversation_history,
                             "chat_summary": format_conversation_as_chat(
                                 store.conversation_history
@@ -713,7 +757,9 @@ def run_agent(
                             "status": "completed_with_summary_fallback",
                             "iterations_used": iteration,
                             "max_iterations": max_iterations,
+                            "formatted_output": formatted_result is not None,
                         }
+
                 except Exception as e:
                     print_retro_status("ERROR", f"Summarizer fallback failed: {str(e)}")
                     if verbose:

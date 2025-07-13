@@ -16,6 +16,7 @@ class AgentState(Enum):
     EVALUATING = "evaluating"
     COMPLETED = "completed"
     FAILED = "failed"
+    FINALIZING = "finalizing"
 
 
 class ActionType(Enum):
@@ -24,7 +25,8 @@ class ActionType(Enum):
     EXECUTE = "execute"
     SUMMARIZE = "summarize"
     EVALUATE = "evaluate"
-
+    FINALIZE = "finalize"
+    NO_ACTION = "no_action"
 
 class StateTransitionRule:
     """Defines a valid state transition rule."""
@@ -80,15 +82,20 @@ class AgentStateMachine:
             StateTransitionRule(AgentState.PLANNING, ActionType.EXECUTE, AgentState.EXECUTING),
             
             # From EXECUTING state - can PLAN, EXECUTE or SUMMARIZE
-            StateTransitionRule(AgentState.EXECUTING, ActionType.PLAN, AgentState.PLANNING),
             StateTransitionRule(AgentState.EXECUTING, ActionType.EXECUTE, AgentState.EXECUTING),
             StateTransitionRule(AgentState.EXECUTING, ActionType.SUMMARIZE, AgentState.SUMMARIZING),
             
             # From SUMMARIZING state - must go to EVALUATE (mandatory)
             StateTransitionRule(AgentState.SUMMARIZING, ActionType.EVALUATE, AgentState.EVALUATING),
+            StateTransitionRule(AgentState.SUMMARIZING, ActionType.EXECUTE, AgentState.EXECUTING),
             
             # From EVALUATING state - returns to PLAN (mandatory)
             StateTransitionRule(AgentState.EVALUATING, ActionType.PLAN, AgentState.PLANNING),
+            StateTransitionRule(AgentState.EVALUATING, ActionType.FINALIZE, AgentState.FINALIZING),
+
+            # From FINALIZING state - must go to COMPLETED (mandatory)
+            StateTransitionRule(AgentState.FINALIZING, ActionType.NO_ACTION, AgentState.COMPLETED),
+            StateTransitionRule(AgentState.FINALIZING, ActionType.NO_ACTION, AgentState.FAILED),
         ]
     
     def is_action_allowed(self, action: ActionType, agent_data: Dict = None) -> bool:

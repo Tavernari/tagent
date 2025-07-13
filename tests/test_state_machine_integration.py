@@ -191,8 +191,10 @@ class TestStateMachineIntegration:
         """Test that state machine prevents evaluate when no summary exists."""
         state_machine = AgentStateMachine()
         
-        # Move to proper state where EVALUATE can be called (from EXECUTING or SUMMARIZING)
-        state_machine.transition(ActionType.EXECUTE)  # Go to EXECUTING state
+        # Move to proper state where EVALUATE can be called (must be SUMMARIZING state)
+        state_machine.transition(ActionType.PLAN)     # INITIAL -> PLANNING
+        state_machine.transition(ActionType.EXECUTE)  # PLANNING -> EXECUTING
+        state_machine.transition(ActionType.SUMMARIZE)  # EXECUTING -> SUMMARIZING
         
         # Test data without summary
         agent_data = {
@@ -214,9 +216,10 @@ class TestStateMachineIntegration:
         """Test that state machine prevents summarize after summarize."""
         state_machine = AgentStateMachine()
         
-        # Simulate proper flow: EXECUTE -> SUMMARIZE
-        state_machine.transition(ActionType.EXECUTE)  # Go to EXECUTING state first
-        state_machine.transition(ActionType.SUMMARIZE)  # Then SUMMARIZE
+        # Simulate proper flow: INITIAL -> PLAN -> EXECUTE -> SUMMARIZE
+        state_machine.transition(ActionType.PLAN)     # INITIAL -> PLANNING
+        state_machine.transition(ActionType.EXECUTE)  # PLANNING -> EXECUTING
+        state_machine.transition(ActionType.SUMMARIZE)  # EXECUTING -> SUMMARIZING
         
         agent_data = {
             "goal": "test goal",
@@ -236,10 +239,11 @@ class TestStateMachineIntegration:
         """Test that state machine prevents evaluate after evaluate."""
         state_machine = AgentStateMachine()
         
-        # Simulate proper flow: EXECUTE -> SUMMARIZE -> EVALUATE
-        state_machine.transition(ActionType.EXECUTE)   # Go to EXECUTING state first
-        state_machine.transition(ActionType.SUMMARIZE) # Then SUMMARIZE
-        state_machine.transition(ActionType.EVALUATE)  # Then EVALUATE
+        # Simulate proper flow: INITIAL -> PLAN -> EXECUTE -> SUMMARIZE -> EVALUATE
+        state_machine.transition(ActionType.PLAN)      # INITIAL -> PLANNING
+        state_machine.transition(ActionType.EXECUTE)   # PLANNING -> EXECUTING
+        state_machine.transition(ActionType.SUMMARIZE) # EXECUTING -> SUMMARIZING
+        state_machine.transition(ActionType.EVALUATE)  # SUMMARIZING -> EVALUATING
         
         agent_data = {
             "goal": "test goal",
@@ -254,6 +258,82 @@ class TestStateMachineIntegration:
         # But PLAN should be allowed after EVALUATE
         assert state_machine.is_action_allowed(ActionType.PLAN, agent_data), \
             "PLAN should be allowed after EVALUATE"
+
+    def test_max_iterations_triggers_summarization_and_evaluation(self):
+        """Test that reaching max iterations automatically triggers summarization and evaluation."""
+        
+        # Mock LLM responses that would cause infinite planning/execution loop
+        responses = [
+            '{"action": "plan", "params": {"goal": "test goal"}, "reasoning": "Planning"}',
+            '{"action": "execute", "params": {"tool": "data_tool", "args": {"test": "data"}}, "reasoning": "Executing"}',
+            '{"action": "plan", "params": {"goal": "test goal"}, "reasoning": "Planning again"}',
+            '{"action": "execute", "params": {"tool": "data_tool", "args": {"test": "data"}}, "reasoning": "Executing again"}',
+            # This would continue infinitely without max iterations
+        ]
+        
+        # Mock the summarize responses
+        summarize_response = '{"action": "summarize", "params": {}, "reasoning": "Creating summary"}'
+        evaluate_response = '{"action": "evaluate", "params": {}, "reasoning": "Evaluating goal"}'
+        
+        # Set up mock adapter
+        mock_adapter = MockLLMAdapter(responses)
+        set_llm_adapter(mock_adapter)
+        
+        # Track function calls to verify summarization and evaluation occur
+        summarize_called = False
+        evaluate_called = False
+        original_responses = mock_adapter.responses.copy()
+        
+        def track_summarize(*args, **kwargs):
+            nonlocal summarize_called
+            summarize_called = True
+            # Mock a summary result
+            return ("summary", {
+                "findings": ["Found some data"], 
+                "status": "Summary completed"
+            })
+        
+        def track_evaluate(*args, **kwargs):
+            nonlocal evaluate_called
+            evaluate_called = True
+            # Mock evaluation result
+            return ("evaluation", {
+                "achieved": True,
+                "feedback": "Goal achieved with collected data"
+            })
+        
+        # Patch the actions to track calls
+        with patch('tagent.agent.summarize_action', side_effect=track_summarize), \
+             patch('tagent.agent.goal_evaluation_action', side_effect=track_evaluate):
+            
+            # Run agent with very low max_iterations to force timeout
+            result = run_agent(
+                goal="Test goal for max iterations",
+                model="test-model",
+                tools=self.mock_tools,
+                max_iterations=2,  # Very low to trigger timeout quickly
+                verbose=True
+            )
+        
+        # Verify that summarization and evaluation were called
+        assert summarize_called, "Summarization should be called when max iterations reached"
+        assert evaluate_called, "Evaluation should be called after summarization when max iterations reached"
+        
+        # Verify the result contains the expected structure
+        assert result is not None, "Result should not be None"
+        assert result.get("status") == "completed_with_summary_fallback", \
+            "Status should indicate completion with summary fallback"
+        assert "result" in result, "Result should contain summary result"
+        assert "evaluation" in result, "Result should contain evaluation result"
+        assert "raw_data" in result, "Result should contain raw data with all findings"
+        assert result.get("iterations_used") == 2, "Should show correct number of iterations used"
+        assert result.get("max_iterations") == 2, "Should show correct max iterations"
+        
+        # Verify the evaluation shows goal was achieved
+        evaluation = result.get("evaluation", {})
+        assert evaluation.get("achieved") is True, "Evaluation should show goal was achieved"
+        
+        print("✓ Max iterations correctly triggers summarization and evaluation")
 
 
 if __name__ == "__main__":
