@@ -187,12 +187,58 @@ def print_retro_status(status: str, details: str = "") -> None:
         print(f"\n{Colors.WHITE}[-] {timestamp} {status}: {details}{Colors.RESET}")
 
 
+def print_plan_details(content: str, max_width: int = 80) -> None:
+    """Prints plan details with proper formatting and wrapping."""
+    if not content:
+        return
+    
+    # Clean up the content
+    clean_content = " ".join(content.split())
+    
+    # If content is short enough, show in one line
+    if len(clean_content) <= max_width:
+        print(f"{Colors.DIM}   📝 Plan: {clean_content}{Colors.RESET}")
+        return
+    
+    # For longer content, show first line and continuation
+    first_line = clean_content[:max_width-10] + "..."
+    print(f"{Colors.DIM}   📝 Plan: {first_line}{Colors.RESET}")
+    
+    # Show additional lines for better readability
+    remaining = clean_content[max_width-10:]
+    words = remaining.split()
+    current_line = "        "  # Indent continuation
+    
+    for word in words[:15]:  # Show up to 15 more words
+        if len(current_line + word + " ") <= max_width:
+            current_line += word + " "
+        else:
+            if current_line.strip():
+                print(f"{Colors.DIM}{current_line.rstrip()}{Colors.RESET}")
+            current_line = "        " + word + " "
+    
+    if current_line.strip() and len(current_line) > 8:
+        # Add final truncation if there's still more content
+        if len(words) > 15:
+            current_line = current_line.rstrip() + "..."
+        print(f"{Colors.DIM}{current_line.rstrip()}{Colors.RESET}")
+
+
 def print_feedback_dimmed(
-    feedback_type: str, content: str, max_length: int = 80
+    feedback_type: str, content: str, max_length: int = None
 ) -> None:
     """Prints feedback in a dimmed, non-verbose style for quick overview."""
     if not content:
         return
+
+    # Special handling for plan feedback
+    if feedback_type == "PLAN_FEEDBACK":
+        print_plan_details(content)
+        return
+
+    # Set default max_length based on feedback type
+    if max_length is None:
+        max_length = 80   # Default for other feedback types
 
     # Truncate content if too long
     truncated = content[:max_length] + "..." if len(content) > max_length else content
@@ -206,8 +252,6 @@ def print_feedback_dimmed(
         print(f"{Colors.DIM}   📋 Missing: {clean_content}{Colors.RESET}")
     elif feedback_type == "SUGGESTIONS":
         print(f"{Colors.DIM}   💡 {clean_content}{Colors.RESET}")
-    elif feedback_type == "PLAN_FEEDBACK":
-        print(f"{Colors.DIM}   📝 Plan: {clean_content}{Colors.RESET}")
     else:
         print(f"{Colors.DIM}   ℹ️  {clean_content}{Colors.RESET}")
 

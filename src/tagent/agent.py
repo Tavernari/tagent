@@ -162,26 +162,24 @@ def run_agent(
 
             if last_action == "evaluate" and unused_tools:
                 strategy_hint = (
-                    "CRITICAL: Stop evaluating! The goal is NOT achieved because "
-                    f"you need to gather more data. Use unused tools: {unused_tools}. "
-                    "DO NOT use 'evaluate' again. "
+                    f"Goal evaluation indicates more data is needed. Available tools that haven't been used: {unused_tools}. "
+                    "Additional data gathering may help achieve the goal."
                 )
             elif last_action == "evaluate" and not unused_tools:
                 strategy_hint = (
-                    "CRITICAL: Stop evaluating! The goal is NOT achieved. You must "
-                    "'plan' a new strategy or 'execute' tools with different "
-                    "parameters. DO NOT use 'evaluate' again until you've tried "
-                    "other actions. "
+                    "Goal evaluation shows the current approach needs adjustment. "
+                    "Consider planning a new strategy or executing tools with different parameters. "
+                    "Gathering more information may help before the next evaluation."
                 )
             elif unused_tools:
                 strategy_hint = (
-                    f"IMPORTANT: Break the pattern! Try unused tools: {unused_tools} "
-                    "or use 'plan' to rethink approach. "
+                    f"Current pattern may benefit from a different approach. Unused tools available: {unused_tools}. "
+                    "Consider planning a new strategy to make progress."
                 )
             else:
                 strategy_hint = (
-                    "IMPORTANT: Break the pattern! Try 'plan' to develop new "
-                    "strategy or different parameters. "
+                    "Current approach shows repetition. Planning a new strategy or trying different parameters "
+                    "may help achieve the goal more effectively."
                 )
 
         # Include evaluation feedback in prompt if available
@@ -205,19 +203,19 @@ def run_agent(
         step_warning = ""
         if remaining_steps <= 5:
             if remaining_steps <= 1:
-                step_warning = f"⚠️ CRITICAL: Only {remaining_steps} step remaining before agent stops! Must accomplish goal NOW or it will be lost. "
+                step_warning = f"⚠️ Only {remaining_steps} step remaining. Focus on goal completion to maximize progress. "
             elif remaining_steps <= 2:
-                step_warning = f"⚠️ WARNING: Only {remaining_steps} steps remaining! Focus on goal completion. "
+                step_warning = f"⚠️ {remaining_steps} steps remaining. Prioritize actions that advance toward the goal. "
             else:
                 step_warning = f"⚠️ {remaining_steps} steps left. Be efficient. "
 
         # Add instruction to avoid evaluate after failure
-        avoid_evaluate_hint = ""
+        evaluate_guidance = ""
         if last_action_was_failed_evaluate:
-            avoid_evaluate_hint = (
-                "CRITICAL: The last evaluation failed. DO NOT choose 'evaluate' again! "
-                "You MUST choose 'plan' to rethink strategy based on feedback, or 'execute' to gather more data. "
-                "Address missing items and suggestions from the evaluator."
+            evaluate_guidance = (
+                "The last evaluation indicated the goal hasn't been achieved yet. "
+                "Consider planning a new strategy based on the feedback, or executing tools to gather more data. "
+                "Review missing items and suggestions from the evaluator to guide next steps."
             )
 
         # Get allowed actions from state machine
@@ -225,9 +223,9 @@ def run_agent(
         allowed_action_names = [action.value for action in allowed_actions]
         
         # Add hint for finalizing
-        finalize_hint = ""
+        completion_guidance = ""
         if store.state.data.get("achieved", False) and "finalize" in allowed_action_names:
-            finalize_hint = "CRITICAL: The goal has been achieved. You MUST use the 'finalize' action to complete the process."
+            completion_guidance = "The goal has been achieved successfully. The 'finalize' action is available to complete the process."
 
         # Check if only one action is allowed - if so, follow the single path automatically
         if len(allowed_actions) == 1:
@@ -263,13 +261,12 @@ def run_agent(
                 f"Unused tools: {unused_tools}\n"
                 f"{evaluation_feedback}"
                 f"{strategy_hint}"
-                f"{avoid_evaluate_hint}"
-                f"{finalize_hint}"
-                "For 'execute' action, prefer UNUSED tools to gather different types of data. "
-                "If goal evaluation fails, DO NOT immediately evaluate again - try other actions first. "
-                "Only use 'evaluate' after making changes or gathering new data. "
-                f"IMPORTANT: You can choose from these available actions: {allowed_action_names}. "
-                "Choose the best action for the current context."
+                f"{evaluate_guidance}"
+                f"{completion_guidance}"
+                "When executing actions, unused tools may provide different types of valuable data. "
+                "Evaluation works best after gathering new information or making progress. "
+                f"Available actions for this context: {allowed_action_names}. "
+                "Consider which action would be most effective for achieving the goal."
             )
             # Add current prompt to history
             store.add_to_conversation("user", prompt)
@@ -321,17 +318,17 @@ def run_agent(
         if len(recent_actions) > max_recent_actions:
             recent_actions.pop(0)  # Keep only the latest actions
 
-        # Force action if 'evaluate' after previous failure
+        # Redirect action if 'evaluate' after previous failure to prevent loops
         if decision.action == "evaluate" and last_action_was_failed_evaluate:
             print_retro_status(
-                "WARNING", "Preventing evaluate loop - forcing 'plan' instead"
+                "WARNING", "Evaluation loop detected - redirecting to planning"
             )
             decision.action = "plan"
-            decision.reasoning = "Forced plan due to evaluate loop prevention"
+            decision.reasoning = "Redirected to planning to address evaluation feedback"
             # Add to history as observation
             store.add_to_conversation(
                 "user",
-                "Observation: Evaluate loop detected. Forcing plan to address evaluator feedback.",
+                "Observation: Evaluation loop detected. Redirecting to planning to address evaluator feedback.",
             )
 
         # Add assistant response to history
@@ -545,7 +542,7 @@ def run_agent(
                         "WARNING",
                         f"Evaluator rejected {evaluation_rejections} times - preventing evaluation loops",
                     )
-                    # Force plan_action immediately
+                    # Execute plan_action to address feedback
                     store.dispatch(
                         lambda state: plan_action(
                             state,
@@ -559,30 +556,30 @@ def run_agent(
                     )
                     recent_actions.append("plan")  # Update to break loop
 
-                # After 2 evaluation failures, force alternative actions
+                # After 2 evaluation failures, encourage alternative actions
                 if consecutive_failures >= 2:
                     if verbose:
                         print_retro_status(
                             "WARNING",
-                            "Too many evaluation failures - forcing strategy change",
+                            "Too many evaluation failures - strategy change needed",
                         )
                     # Skip the next evaluate decision by manipulating recent actions
                     recent_actions.append(
                         "evaluate"
                     )  # Add extra evaluate to trigger loop detection
 
-                # Force completion if many consecutive failures with sufficient data
+                # Consider completion when many failures occur but sufficient data exists
                 if (
                     consecutive_failures >= max_consecutive_failures
                     and current_data_count >= 3
                 ):
                     print_retro_status(
                         "WARNING",
-                        f"Forcing completion: {consecutive_failures} failures with {current_data_count} items",
+                        f"Auto-completion triggered: {consecutive_failures} failures with {current_data_count} items",
                     )
                     if verbose:
                         print(
-                            f"[FORCE] Forcing completion due to {consecutive_failures} consecutive failures with {current_data_count} data items"
+                            f"[AUTO] Auto-completion due to {consecutive_failures} consecutive failures with {current_data_count} data items"
                         )
                     store.state.data["achieved"] = True
         elif decision.action == "finalize":
@@ -639,6 +636,8 @@ def run_agent(
                     store.conversation_history
                 ),
                 "status": "completed_with_formatting",
+                "iterations_used": iteration,
+                "max_iterations": max_iterations,
             }
             return final_result_with_chat
         elif output_format:
@@ -653,6 +652,8 @@ def run_agent(
                 ),
                 "status": "completed_without_formatting",
                 "error": "Formatting failed, but an output format was provided.",
+                "iterations_used": iteration,
+                "max_iterations": max_iterations,
             }
         else:
             # No output format specified, return raw collected data
@@ -665,6 +666,8 @@ def run_agent(
                     store.conversation_history
                 ),
                 "status": "completed_without_formatting",
+                "iterations_used": iteration,
+                "max_iterations": max_iterations,
             }
     else:
         # Determine stop reason
@@ -710,6 +713,10 @@ def run_agent(
                     )
 
                 # Call summarizer to preserve work done so far
+                summary_result = None
+                evaluation_result = {}
+                formatted_result = None
+                
                 try:
                     # Update state machine to reflect we're moving to SUMMARIZE
                     print_retro_status("STATE_AUTO", "Max iterations reached - forcing SUMMARIZE action")
@@ -727,9 +734,10 @@ def run_agent(
                         verbose=verbose,
                     )
                     summary_result = store.state.data.get("summary")
-                    if summary_result:
-                        # After summarize, automatically run evaluate to check if goal was achieved
-                        print_retro_status("AUTO_EVAL", "Auto-evaluating after summarization...")
+                    
+                    # Always try to run evaluation, regardless of summary success
+                    print_retro_status("AUTO_EVAL", "Auto-evaluating after summarization...")
+                    try:
                         state_machine.transition(ActionType.EVALUATE)  # Update state machine for auto-eval
                         store.dispatch(
                             lambda state: goal_evaluation_action(
@@ -744,45 +752,50 @@ def run_agent(
                             verbose=verbose,
                         )
                         evaluation_result = store.state.data.get("evaluation", {})
+                    except Exception as e:
+                        print_retro_status("WARNING", f"Auto-evaluation failed: {str(e)}")
+                        if verbose:
+                            print(f"[WARNING] Auto-evaluation failed: {e}")
 
-                        # Format output using fallback action if output_format is provided
-                        formatted_result = None
-                        if output_format:
-                            try:
-                                print_retro_status("FORMAT_FALLBACK", "Applying output schema to available data...")
-                                store.dispatch(
-                                    lambda state: format_fallback_output_action(
-                                        state, model, api_key, output_format, verbose=verbose
-                                    ),
-                                    verbose=verbose,
-                                )
-                                formatted_result = store.state.data.get("final_output")
-                                print_retro_status("SUCCESS", "Output structured despite incomplete goal!")
-                            except Exception as e:
-                                print_retro_status("WARNING", f"Fallback formatting failed: {str(e)}")
-                                if verbose:
-                                    print(f"[WARNING] Fallback formatting failed: {e}")
-
-                        return {
-                            "result": formatted_result or summary_result,
-                            "evaluation": evaluation_result,
-                            "raw_data": store.state.data,
-                            "conversation_history": store.conversation_history,
-                            "chat_summary": format_conversation_as_chat(
-                                store.conversation_history
-                            ),
-                            "status": "completed_with_summary_fallback",
-                            "iterations_used": iteration,
-                            "max_iterations": max_iterations,
-                            "formatted_output": formatted_result is not None,
-                        }
+                    # Always try to format output if output_format is provided
+                    if output_format:
+                        try:
+                            print_retro_status("FORMAT_FALLBACK", "Applying output schema to available data...")
+                            store.dispatch(
+                                lambda state: format_fallback_output_action(
+                                    state, model, api_key, output_format, verbose=verbose
+                                ),
+                                verbose=verbose,
+                            )
+                            formatted_result = store.state.data.get("final_output")
+                            print_retro_status("SUCCESS", "Output structured despite incomplete goal!")
+                        except Exception as e:
+                            print_retro_status("WARNING", f"Fallback formatting failed: {str(e)}")
+                            if verbose:
+                                print(f"[WARNING] Fallback formatting failed: {e}")
                         
                 except Exception as e:
                     print_retro_status("ERROR", f"Summarizer fallback failed: {str(e)}")
                     if verbose:
                         print(f"[ERROR] Summarizer fallback failed: {e}")
 
-                error_msg = "Max iterations reached"
+                # Always return available context, even if summarizer/evaluator failed
+                print_retro_status("CONTEXT_OUTPUT", "Generating output with available context...")
+                return {
+                    "result": formatted_result or summary_result or "Max iterations reached - returning available context",
+                    "evaluation": evaluation_result,
+                    "raw_data": store.state.data,
+                    "conversation_history": store.conversation_history,
+                    "chat_summary": format_conversation_as_chat(
+                        store.conversation_history
+                    ),
+                    "status": "completed_with_summary_fallback",
+                    "iterations_used": iteration,
+                    "max_iterations": max_iterations,
+                    "formatted_output": formatted_result is not None,
+                    "summary_generated": summary_result is not None,
+                    "evaluation_completed": bool(evaluation_result),
+                }
         else:
             error_msg = "Unknown termination reason"
             print_retro_banner("UNEXPECTED STOP", "!", color=Colors.BRIGHT_RED)
@@ -797,9 +810,9 @@ def run_agent(
             "chat_summary": format_conversation_as_chat(store.conversation_history),
             "error": error_msg,
             "final_state": store.state.data,
+            "iterations_used": iteration,
+            "max_iterations": max_iterations,
         }
-
-    return None
 
 
 # === Example Usage ===

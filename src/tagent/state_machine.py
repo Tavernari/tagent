@@ -81,9 +81,10 @@ class AgentStateMachine:
             # From PLANNING state - can only EXECUTE
             StateTransitionRule(AgentState.PLANNING, ActionType.EXECUTE, AgentState.EXECUTING),
             
-            # From EXECUTING state - can PLAN, EXECUTE or SUMMARIZE
+            # From EXECUTING state - can PLAN, EXECUTE, SUMMARIZE, or EVALUATE
             StateTransitionRule(AgentState.EXECUTING, ActionType.EXECUTE, AgentState.EXECUTING),
             StateTransitionRule(AgentState.EXECUTING, ActionType.SUMMARIZE, AgentState.SUMMARIZING),
+            StateTransitionRule(AgentState.EXECUTING, ActionType.EVALUATE, AgentState.EVALUATING),
             
             # From SUMMARIZING state - must go to EVALUATE (mandatory)
             StateTransitionRule(AgentState.SUMMARIZING, ActionType.EVALUATE, AgentState.EVALUATING),
@@ -145,10 +146,18 @@ class AgentStateMachine:
             if len(data_keys) < 1:
                 return False
         
-        # Rule 2: Should not EVALUATE without a summary (only occurs in SUMMARIZING state)
+        # Rule 2: Should not EVALUATE without sufficient data or a summary
         if action == ActionType.EVALUATE:
             has_summary = agent_data.get("summary") is not None and agent_data.get("summary") != ""
-            if not has_summary:
+            # Count meaningful data items (excluding meta fields)
+            data_keys = [
+                k for k, v in agent_data.items() 
+                if k not in ["goal", "achieved", "used_tools"] and v
+            ]
+            has_sufficient_data = len(data_keys) >= 2  # At least 2 data items
+            
+            # Allow evaluate if we have either a summary OR sufficient data
+            if not (has_summary or has_sufficient_data):
                 return False
         
         return True

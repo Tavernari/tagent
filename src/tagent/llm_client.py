@@ -62,7 +62,7 @@ def query_llm_for_model(
             "content": (
                 f"You are a helpful assistant designed to output JSON conforming to the following schema: {json.dumps(schema)}.\n"
                 f"Example output: {example_json}.\n"
-                "Ensure ALL required fields are filled. Do not output empty objects."
+                "Please fill all required fields and provide complete objects."
             ),
         }
 
@@ -71,7 +71,7 @@ def query_llm_for_model(
             "content": (
                 f"{prompt}\n"
                 f"Extract and format data from the state. {error_feedback}\n"
-                "Respond ONLY with a valid JSON object matching the schema. No extra text."
+                "Please respond with a valid JSON object matching the schema."
             ),
         }
 
@@ -106,7 +106,8 @@ def query_llm_for_model(
         ) as e:
             if verbose:
                 print(f"[ERROR] Attempt {attempt + 1}/{max_retries} failed: {e}")
-            error_feedback = f"Previous output was invalid: {str(e)}. Correct it by filling all required fields like {list(schema['required'])}."
+            required_fields = list(schema.get('required', [])) if schema else []
+            error_feedback = f"Previous output was invalid: {str(e)}. Correct it by filling all required fields like {required_fields}."
             if attempt == max_retries - 1:
                 raise ValueError("Failed to get valid structured output after retries")
 

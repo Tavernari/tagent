@@ -66,19 +66,19 @@ def plan_action(
             conversation_history=conversation_history,
             verbose=verbose,
         )
-        # Validation: Force action='plan' if wrong
+        # Validate response action type
         if response.action != "plan":
             if verbose:
                 print(
-                    f"[WARNING] Invalid action in plan: {response.action}. "
-                    "Retrying with forced plan."
+                    f"[WARNING] Unexpected action in plan: {response.action}. "
+                    "Requesting plan-specific response."
                 )
-            forced_prompt = (
+            clarified_prompt = (
                 prompt
-                + "\nMUST use action='plan' and provide params with a strategic plan."
+                + "\nPlease provide a strategic plan with action='plan' and appropriate params."
             )
             response = query_llm(
-                forced_prompt,
+                clarified_prompt,
                 model,
                 api_key,
                 tools=tools,
@@ -148,11 +148,11 @@ def summarize_action(
             if verbose:
                 print(
                     f"[WARNING] Invalid action in summarize: {response.action}. "
-                    "Retrying with forced summarize."
+                    "Requesting summary-specific response."
                 )
-            forced_prompt = prompt + "\nMUST use action='summarize'."
+            clarified_prompt = prompt + "\nPlease provide a summary with action='summarize'."
             response = query_llm(
-                forced_prompt,
+                clarified_prompt,
                 model,
                 api_key,
                 tools=tools,
@@ -217,9 +217,9 @@ def goal_evaluation_action(
         f"Based on the current state: {state} and the goal: '{goal}'.{feedback_str}\n"
         "Evaluate if the goal has been sufficiently achieved. Consider the data "
         "collected and whether it meets the requirements. If NOT achieved, explain "
-        "specifically what is missing or insufficient in 'reasoning', and ALWAYS "
-        "include 'missing_items' (list of strings) and 'suggestions' (list of at "
-        "least 2 specific actions) in params so the agent can take corrective action."
+        "specifically what is missing or insufficient in 'reasoning'. When the goal "
+        "is not achieved, please include 'missing_items' (list of strings) and 'suggestions' "
+        "(list of specific actions) in params to help guide next steps."
     )
     start_thinking("Evaluating goal")
     try:
@@ -231,20 +231,20 @@ def goal_evaluation_action(
             conversation_history=conversation_history,
             verbose=verbose,
         )
-        # Validation: Force action='evaluate' if wrong
+        # Validate response action type
         if response.action != "evaluate":
             if verbose:
                 print(
-                    f"[WARNING] Invalid action in evaluate: {response.action}. "
-                    "Retrying with forced evaluate."
+                    f"[WARNING] Unexpected action in evaluate: {response.action}. "
+                    "Requesting evaluation-specific response."
                 )
-            forced_prompt = (
+            clarified_prompt = (
                 prompt
-                + "\nMUST use action='evaluate' and provide params with "
-                "'achieved' (bool), 'missing_items', 'suggestions' if not achieved."
+                + "\nPlease provide an evaluation with action='evaluate' and params containing "
+                "'achieved' (bool), and if not achieved, 'missing_items' and 'suggestions'."
             )
             response = query_llm(
-                forced_prompt,
+                clarified_prompt,
                 model,
                 api_key,
                 tools=tools,
@@ -295,7 +295,7 @@ def goal_evaluation_action(
                     observation = (
                         f"Observation from evaluate: Goal NOT achieved. "
                         f"Feedback: {evaluation_feedback}. Missing: {missing_str}. Suggestions: {suggestions_str}. "
-                        "MUST plan or execute next to address this."
+                        "Consider planning or executing next actions to address this feedback."
                     )
                     store.add_to_conversation("user", observation)
 
@@ -354,12 +354,12 @@ def format_fallback_output_action(
     
     prompt = (
         f"Based on the current state: {state} and the original goal: '{goal}'. "
-        "IMPORTANT: The goal may not be fully achieved and data may be incomplete. "
-        "Extract and format ALL available data collected so far according to the output schema. "
+        "Note: The goal may not be fully achieved and data may be incomplete. "
+        "Please extract and format available data collected so far according to the output schema. "
         "For missing required fields, provide reasonable defaults or indicate unavailability "
         "(e.g., 'Data not available', 'Not collected', etc.). "
-        "Ensure ALL required schema fields are filled with the best available information. "
-        "Create meaningful summaries based on whatever data was successfully gathered."
+        "Please fill required schema fields with the best available information. "
+        "Consider creating meaningful summaries based on the data that was successfully gathered."
     )
     
     start_thinking("Structuring available data with fallback")

@@ -231,12 +231,12 @@ def query_llm_with_adapter(
         "content": (
             f"{prompt}\n\n"
             f"{available_tools}"
-            "When using 'execute' action, choose the most appropriate tool based on its documentation. "
-            "Ensure 'params' contains 'tool' (tool name) and 'args' (parameters matching the tool's signature).\n"
-            "When using 'evaluate' action, if goal is NOT achieved, include 'missing_items' and 'suggestions' in params.\n"
-            "Respond ONLY with a valid JSON in the format: "
+            "For 'execute' actions, consider selecting appropriate tools based on their documentation. "
+            "Include 'tool' (tool name) and 'args' (parameters) in params.\n"
+            "For 'evaluate' actions where the goal is not achieved, consider including 'missing_items' and 'suggestions' in params.\n"
+            "Please respond with valid JSON in the format: "
             "{\"action\": str (plan|execute|summarize|evaluate), \"params\": dict, \"reasoning\": str}."
-            "Use double quotes for JSON strings, not single quotes. Do not add extra text."
+            "Use double quotes for JSON strings."
         ),
     }
 

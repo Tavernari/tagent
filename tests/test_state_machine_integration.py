@@ -110,7 +110,8 @@ class TestStateMachineIntegration:
         mock_responses = [
             '{"action": "execute", "params": {"tool": "data_tool", "args": {}}, "reasoning": "Collecting data"}',
             '{"action": "summarize", "params": {}, "reasoning": "Summarizing results"}',
-            '{"action": "execute", "params": {"tool": "data_tool", "args": {}}, "reasoning": "Following plan"}'
+            '{"action": "execute", "params": {"tool": "data_tool", "args": {}}, "reasoning": "Following plan"}',
+            '{"action": "finalize", "params": {}, "reasoning": "Finalizing results"}'
         ]
         
         mock_adapter = MockLLMAdapter(responses=mock_responses)
@@ -289,19 +290,19 @@ class TestStateMachineIntegration:
             nonlocal summarize_called
             summarize_called = True
             # Mock a summary result
-            return ("summary", {
+            return [("summary", {
                 "findings": ["Found some data"], 
                 "status": "Summary completed"
-            })
+            })]
         
         def track_evaluate(*args, **kwargs):
             nonlocal evaluate_called
             evaluate_called = True
             # Mock evaluation result
-            return ("evaluation", {
+            return [("evaluation", {
                 "achieved": True,
                 "feedback": "Goal achieved with collected data"
-            })
+            })]
         
         # Patch the actions to track calls
         with patch('tagent.agent.summarize_action', side_effect=track_summarize), \
