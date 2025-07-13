@@ -9,11 +9,11 @@ import time
 
 from .version import __version__
 from .store import Store
-from .llm_client import query_llm, generate_step_title
+from .llm_client import query_llm, generate_step_title, generate_step_summary
 from .actions import (
     plan_action,
     summarize_action,
-    goal_evaluation_action,
+    enhanced_goal_evaluation_action,
     format_output_action,
     format_fallback_output_action,
 )
@@ -28,6 +28,32 @@ from .ui import (
 )
 from .utils import detect_action_loop, format_conversation_as_chat
 from .state_machine import AgentStateMachine, ActionType, AgentState
+
+
+def _generate_and_show_step_summary(
+    action: str,
+    reasoning: str,
+    result_description: str,
+    model: str,
+    api_key: Optional[str],
+    verbose: bool = False,
+) -> None:
+    """
+    Generate and display a step summary for better user understanding.
+    """
+    try:
+        summary = generate_step_summary(
+            action=action,
+            reasoning=reasoning,
+            result=result_description,
+            model=model,
+            api_key=api_key,
+            verbose=verbose,
+        )
+        print_feedback_dimmed("STEP_SUMMARY", summary)
+    except Exception as e:
+        if verbose:
+            print(f"[DEBUG] Step summary generation failed: {e}")
 
 
 # === Main Agent Loop ===
@@ -348,6 +374,11 @@ def run_agent(
                 ),
                 verbose=verbose,
             )
+            # Generate step summary
+            plan_result = f"Strategic plan created with steps and focus areas"
+            _generate_and_show_step_summary(
+                "plan", decision.reasoning, plan_result, model, api_key, verbose
+            )
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
         elif decision.action == "execute":
@@ -401,6 +432,11 @@ def run_agent(
                         "WARNING",
                         f"Tool {tool_name} returned no result. Observation added.",
                     )
+                # Generate step summary
+                tool_result = f"Tool {tool_name} executed - data collected and stored"
+                _generate_and_show_step_summary(
+                    "execute", decision.reasoning, tool_result, model, api_key, verbose
+                )
                 # Update state machine AFTER successful execution
                 state_machine.transition(action_type)
             else:
@@ -424,6 +460,11 @@ def run_agent(
                 ),
                 verbose=verbose,
             )
+            # Generate step summary
+            summary_result = f"Summary generated combining {len(store.conversation_history)} conversation items"
+            _generate_and_show_step_summary(
+                "summarize", decision.reasoning, summary_result, model, api_key, verbose
+            )
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
             
@@ -432,7 +473,7 @@ def run_agent(
                 print_retro_status("AUTO_EVAL", "Auto-evaluating after summarization...")
                 state_machine.transition(ActionType.EVALUATE)  # Update state machine for auto-eval
                 store.dispatch(
-                    lambda state: goal_evaluation_action(
+                    lambda state: enhanced_goal_evaluation_action(
                         state,
                         model,
                         api_key,
@@ -448,7 +489,7 @@ def run_agent(
             # Store previous state to detect change
             previous_achieved = store.state.data.get("achieved", False)
             store.dispatch(
-                lambda state: goal_evaluation_action(
+                lambda state: enhanced_goal_evaluation_action(
                     state,
                     model,
                     api_key,
@@ -458,6 +499,12 @@ def run_agent(
                     store=store,
                 ),
                 verbose=verbose,
+            )
+            # Generate step summary
+            eval_achieved = store.state.data.get("achieved", False)
+            eval_result = f"Goal evaluation: {'achieved' if eval_achieved else 'not yet achieved'}"
+            _generate_and_show_step_summary(
+                "evaluate", decision.reasoning, eval_result, model, api_key, verbose
             )
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
@@ -607,7 +654,7 @@ def run_agent(
                 print(f"[WARNING] Unknown action: {decision.action}")
             # If unknown action, evaluate to potentially break the loop
             store.dispatch(
-                lambda state: goal_evaluation_action(
+                lambda state: enhanced_goal_evaluation_action(
                     state,
                     model,
                     api_key,
@@ -740,7 +787,7 @@ def run_agent(
                     try:
                         state_machine.transition(ActionType.EVALUATE)  # Update state machine for auto-eval
                         store.dispatch(
-                            lambda state: goal_evaluation_action(
+                            lambda state: enhanced_goal_evaluation_action(
                                 state,
                                 model,
                                 api_key,

@@ -122,7 +122,15 @@ def generate_step_title(
     verbose: bool = False,
 ) -> str:
     """Generate a concise step title using LLM with token limit for speed/cost."""
-    prompt = f"Create a 3-5 word title for this action: {action}. Context: {reasoning[:100]}. Be concise and descriptive."
+    # Extract key information for better titles
+    reasoning_short = reasoning[:150] if reasoning else "No specific reasoning"
+    
+    prompt = (
+        f"Create a descriptive 3-6 word title for this {action} step. "
+        f"Context: {reasoning_short}. "
+        f"Focus on what is being done or accomplished. Examples: "
+        f"'Search Flight Prices', 'Compare Retailer Data', 'Generate Strategic Plan'."
+    )
 
     try:
         response = litellm.completion(
@@ -130,17 +138,64 @@ def generate_step_title(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a concise title generator. Respond with ONLY the title, 3-5 words maximum.",
+                    "content": "You are a concise title generator. Create informative step titles that describe the specific action being taken. Respond with ONLY the title, 3-6 words maximum.",
                 },
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=10,
+            max_tokens=20,  # Increased for more descriptive titles
             temperature=0.0,
             api_key=api_key,
         )
         title = response.choices[0].message.content.strip()
+        # Remove quotes if present
+        title = title.strip('"\'')
         return title if title else f"{action.capitalize()} Operation"
     except Exception as e:
         if verbose:
             print(f"[DEBUG] Title generation failed: {e}")
         return f"{action.capitalize()} Operation"
+
+
+def generate_step_summary(
+    action: str,
+    reasoning: str,
+    result: str,
+    model: str,
+    api_key: Optional[str],
+    verbose: bool = False,
+) -> str:
+    """
+    Generate a concise summary of what happened in this step.
+    Uses a low token limit for speed and cost efficiency.
+    """
+    # Truncate inputs to avoid exceeding context
+    reasoning_short = reasoning[:200] if reasoning else "No reasoning provided"
+    result_short = result[:300] if result else "No result"
+    
+    prompt = (
+        f"Summarize what was accomplished in this {action} step:\n"
+        f"Reasoning: {reasoning_short}\n"
+        f"Result: {result_short}\n"
+        f"Create a 1-2 sentence summary explaining what was found, decided, or accomplished."
+    )
+
+    try:
+        response = litellm.completion(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a concise step summarizer. Create brief, informative summaries in 1-2 sentences. Focus on key findings and progress.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=60,  # Balance between detail and cost
+            temperature=0.0,
+            api_key=api_key,
+        )
+        summary = response.choices[0].message.content.strip()
+        return summary if summary else f"Completed {action} step"
+    except Exception as e:
+        if verbose:
+            print(f"[DEBUG] Step summary generation failed: {e}")
+        return f"Completed {action} step"

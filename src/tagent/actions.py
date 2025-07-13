@@ -9,6 +9,97 @@ from .llm_client import query_llm, query_llm_for_model
 from .ui import print_retro_status, print_feedback_dimmed, start_thinking, stop_thinking
 
 
+def auto_summarize_for_evaluation(
+    state: Dict[str, Any],
+    conversation_history: Optional[List[Dict[str, str]]],
+    model: str,
+    api_key: Optional[str],
+    verbose: bool = False,
+) -> Optional[str]:
+    """
+    Creates a summary of collected data specifically for goal evaluation.
+    This is automatically triggered when there's sufficient data but evaluation needs clarity.
+    """
+    goal = state.get("goal", "")
+    
+    # Extract relevant conversation data
+    tool_results = []
+    if conversation_history:
+        for message in conversation_history:
+            if message.get('role') == 'user' and 'Observation' in message.get('content', ''):
+                tool_results.append(message.get('content', ''))
+    
+    if len(tool_results) < 2:  # Not enough data to summarize
+        return None
+    
+    prompt = (
+        f"Goal: '{goal}'\n\n"
+        f"Current State: {state}\n\n"
+        f"Tool Execution Results:\n" + "\n".join(tool_results[-10:]) + "\n\n"  # Last 10 results
+        "Create a concise summary focusing on:\n"
+        "1. What data has been successfully collected\n"
+        "2. Key findings and results from tool executions\n"
+        "3. Whether sufficient information exists to achieve the goal\n"
+        "4. Any missing pieces needed for goal completion\n\n"
+        "This summary will be used for goal evaluation."
+    )
+    
+    start_thinking("Auto-summarizing for evaluation")
+    try:
+        response = query_llm(
+            prompt,
+            model,
+            api_key,
+            verbose=verbose,
+        )
+        if response and response.reasoning:
+            return response.reasoning
+        return None
+    finally:
+        stop_thinking()
+
+
+def enhanced_goal_evaluation_action(
+    state: Dict[str, Any],
+    model: str,
+    api_key: Optional[str],
+    tools: Optional[Dict[str, Callable]] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    verbose: bool = False,
+    store: Optional[Any] = None,
+    auto_summarize: bool = True,
+) -> Optional[Tuple[str, BaseModel]]:
+    """
+    Enhanced evaluator with optional auto-summarization before evaluation.
+    """
+    # Check if auto-summarization would be helpful
+    if auto_summarize and conversation_history:
+        tool_observations = [
+            msg for msg in conversation_history 
+            if msg.get('role') == 'user' and 'Observation' in msg.get('content', '')
+        ]
+        
+        # Trigger auto-summarization if there are many observations but no explicit summary
+        if len(tool_observations) >= 3 and not state.get("summary"):
+            if verbose:
+                print("[AUTO-SUMMARIZE] Triggering auto-summarization for better evaluation...")
+            
+            auto_summary = auto_summarize_for_evaluation(
+                state, conversation_history, model, api_key, verbose
+            )
+            if auto_summary:
+                # Add the summary to state temporarily for this evaluation
+                state = state.copy()  # Don't modify original state
+                state["auto_summary"] = auto_summary
+                if verbose:
+                    print(f"[AUTO-SUMMARIZE] Generated summary added to evaluation context")
+    
+    # Use the original evaluation function with enhanced context
+    return goal_evaluation_action(
+        state, model, api_key, tools, conversation_history, verbose, store
+    )
+
+
 def plan_action(
     state: Dict[str, Any],
     model: str,
@@ -190,14 +281,37 @@ def goal_evaluation_action(
 ) -> Optional[Tuple[str, BaseModel]]:
     """
     Evaluates if the goal has been achieved via structured output, 
-    considering previous feedback.
+    considering both state data and conversation history.
     """
     print_retro_status("EVALUATE", "Checking if goal was achieved...")
     goal = state.get("goal", "")
+    
+    # Analyze both state and conversation history for a complete picture
     data_items = [
         k for k, v in state.items() if k not in ["goal", "achieved", "used_tools"] and v
     ]
-    print_retro_status("EVALUATE", f"Analyzing {len(data_items)} collected data items")
+    
+    # Extract tool results from conversation history
+    conversation_data = []
+    if conversation_history:
+        for message in conversation_history:
+            if message.get('role') == 'user' and 'Observation' in message.get('content', ''):
+                conversation_data.append(message.get('content', ''))
+    
+    print_retro_status("EVALUATE", f"Analyzing {len(data_items)} state items + {len(conversation_data)} conversation observations")
+
+    # Create comprehensive context including conversation history
+    conversation_context = ""
+    if conversation_data:
+        conversation_context = (
+            "\n\nTool Execution Results from Conversation History:\n" +
+            "\n".join(conversation_data[-5:])  # Last 5 observations to avoid token limit
+        )
+    
+    # Include auto-generated summary if available
+    auto_summary_context = ""
+    if state.get("auto_summary"):
+        auto_summary_context = f"\n\nData Summary for Evaluation:\n{state['auto_summary']}\n"
 
     # Extract previous feedback for context
     evaluation_result = state.get("evaluation_result", {})
@@ -209,17 +323,24 @@ def goal_evaluation_action(
         feedback_str = (
             f"\nPrevious Evaluation: {previous_feedback}\n"
             f"Previously Missing: {previous_missing}\n"
-            "Consider if these have been addressed in the current state. "
+            "Consider if these have been addressed in the current state or conversation history. "
             "Be consistent with past evaluations."
         )
 
     prompt = (
-        f"Based on the current state: {state} and the goal: '{goal}'.{feedback_str}\n"
-        "Evaluate if the goal has been sufficiently achieved. Consider the data "
-        "collected and whether it meets the requirements. If NOT achieved, explain "
-        "specifically what is missing or insufficient in 'reasoning'. When the goal "
-        "is not achieved, please include 'missing_items' (list of strings) and 'suggestions' "
-        "(list of specific actions) in params to help guide next steps."
+        f"Goal: '{goal}'\n\n"
+        f"Current State Data: {state}\n"
+        f"{conversation_context}\n"
+        f"{auto_summary_context}\n"
+        f"{feedback_str}\n\n"
+        "EVALUATION INSTRUCTIONS:\n"
+        "1. Review ALL available information: state data, conversation history, and any data summary\n"
+        "2. Check if all required information to achieve the goal has been collected\n"
+        "3. Consider if the data is sufficient for comparison, calculation, or analysis as needed\n"
+        "4. If the goal involves comparing items, ensure both items' data is available\n"
+        "5. Pay special attention to the data summary which consolidates collected information\n"
+        "6. If NOT achieved, be specific about what data is missing or insufficient\n\n"
+        "Output: If goal achieved, set 'achieved': true. If not, explain missing items and provide suggestions."
     )
     start_thinking("Evaluating goal")
     try:
@@ -410,4 +531,3 @@ def finalize_action(
         return ("final_output", final_result)
     finally:
         stop_thinking()
-    return None

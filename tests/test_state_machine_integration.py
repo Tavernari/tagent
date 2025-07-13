@@ -63,7 +63,7 @@ class TestStateMachineIntegration:
         mock_generate_step_title.return_value = "Test Step"
         
         with patch('tagent.agent.summarize_action', side_effect=track_summarize_calls) as mock_summarize:
-            with patch('tagent.agent.goal_evaluation_action', side_effect=track_evaluate_calls) as mock_evaluate:
+            with patch('tagent.agent.enhanced_goal_evaluation_action', side_effect=track_evaluate_calls) as mock_evaluate:
                 result = run_agent(
                     goal="Collect and analyze data",
                     model="gpt-3.5-turbo",
@@ -121,7 +121,7 @@ class TestStateMachineIntegration:
         with patch('tagent.agent.summarize_action') as mock_summarize:
             mock_summarize.return_value = [("summary", "Data collected and summarized")]
             
-            with patch('tagent.agent.goal_evaluation_action', side_effect=track_evaluate_calls) as mock_evaluate:
+            with patch('tagent.agent.enhanced_goal_evaluation_action', side_effect=track_evaluate_calls) as mock_evaluate:
                 with patch('tagent.agent.plan_action', side_effect=track_plan_calls) as mock_plan:
                     result = run_agent(
                         goal="Collect and analyze data with feedback",
@@ -164,7 +164,7 @@ class TestStateMachineIntegration:
             with patch('tagent.agent.summarize_action') as mock_summarize:
                 mock_summarize.return_value = [("summary", "Summarized data")]
                 
-                with patch('tagent.agent.goal_evaluation_action') as mock_evaluate:
+                with patch('tagent.agent.enhanced_goal_evaluation_action') as mock_evaluate:
                     mock_evaluate.return_value = [("achieved", True)]
                     
                     with patch('tagent.agent.plan_action') as mock_plan:
@@ -306,7 +306,7 @@ class TestStateMachineIntegration:
         
         # Patch the actions to track calls
         with patch('tagent.agent.summarize_action', side_effect=track_summarize), \
-             patch('tagent.agent.goal_evaluation_action', side_effect=track_evaluate):
+             patch('tagent.agent.enhanced_goal_evaluation_action', side_effect=track_evaluate):
             
             # Run agent with very low max_iterations to force timeout
             result = run_agent(
