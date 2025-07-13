@@ -9,6 +9,7 @@ import sys
 
 class Colors:
     """ANSI Color Codes for 90s terminal aesthetics."""
+
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"

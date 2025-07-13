@@ -149,9 +149,7 @@ def query_llm_for_model(
                 response_format=response_format,
                 temperature=0.0,
                 api_key=api_key,
-                model_kwargs=(
-                    {"strict": True} if "strict" in supported_params else {}
-                ),
+                model_kwargs=({"strict": True} if "strict" in supported_params else {}),
             )
             json_str = response.choices[0].message.content.strip()
             if verbose:

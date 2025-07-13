@@ -10,10 +10,20 @@ import time
 from .version import __version__
 from .store import Store
 from .llm_client import query_llm, generate_step_title
-from .actions import plan_action, summarize_action, goal_evaluation_action, format_output_action
+from .actions import (
+    plan_action,
+    summarize_action,
+    goal_evaluation_action,
+    format_output_action,
+)
 from .ui import (
-    print_retro_banner, print_retro_status, print_retro_step, print_feedback_dimmed,
-    start_thinking, stop_thinking, Colors
+    print_retro_banner,
+    print_retro_status,
+    print_retro_step,
+    print_feedback_dimmed,
+    start_thinking,
+    stop_thinking,
+    Colors,
 )
 from .utils import detect_action_loop, format_conversation_as_chat
 
@@ -47,7 +57,9 @@ def run_agent(
         An instance of the `output_format` model, or None if no output is generated.
     """
     # 90s Style Agent Initialization
-    print_retro_banner(f"T-AGENT v{__version__} STARTING", "▓", color=Colors.BRIGHT_MAGENTA)
+    print_retro_banner(
+        f"T-AGENT v{__version__} STARTING", "▓", color=Colors.BRIGHT_MAGENTA
+    )
     print_retro_status("INIT", f"Goal: {goal[:40]}...")
     print_retro_status("CONFIG", f"Model: {model} | Max Iterations: {max_iterations}")
 
@@ -61,7 +73,7 @@ def run_agent(
     # Action loop detection system
     recent_actions = []
     max_recent_actions = 3
-    
+
     # Step counting and evaluator tracking
     evaluation_rejections = 0
     max_evaluation_rejections = 2
@@ -86,12 +98,14 @@ def run_agent(
         remaining_steps = max_iterations - iteration
         if remaining_steps <= 3:
             print_retro_status(
-                "WARNING", 
-                f"Only {remaining_steps} steps remaining before reaching max iterations ({max_iterations})"
+                "WARNING",
+                f"Only {remaining_steps} steps remaining before reaching max iterations ({max_iterations})",
             )
-            
+
         if verbose:
-            print(f"[LOOP] Iteration {iteration}/{max_iterations}. Current state: {store.state.data}")
+            print(
+                f"[LOOP] Iteration {iteration}/{max_iterations}. Current state: {store.state.data}"
+            )
         else:
             print_retro_status("STEP", f"Step {iteration}/{max_iterations}")
 
@@ -118,7 +132,8 @@ def run_agent(
 
         # Check if the last action was 'evaluate' failure
         last_action_was_failed_evaluate = (
-            recent_actions and recent_actions[-1] == "evaluate"
+            recent_actions
+            and recent_actions[-1] == "evaluate"
             and not store.state.data.get("achieved", False)
         )
 
@@ -171,7 +186,7 @@ def run_agent(
                 step_warning = f"⚠️ WARNING: Only {remaining_steps} steps remaining! Focus on goal completion. "
             else:
                 step_warning = f"⚠️ {remaining_steps} steps left. Be efficient. "
-        
+
         # Add instruction to avoid evaluate after failure
         avoid_evaluate_hint = ""
         if last_action_was_failed_evaluate:
@@ -228,11 +243,16 @@ def run_agent(
 
         # Force action if 'evaluate' after previous failure
         if decision.action == "evaluate" and last_action_was_failed_evaluate:
-            print_retro_status("WARNING", "Preventing evaluate loop - forcing 'plan' instead")
+            print_retro_status(
+                "WARNING", "Preventing evaluate loop - forcing 'plan' instead"
+            )
             decision.action = "plan"
             decision.reasoning = "Forced plan due to evaluate loop prevention"
             # Add to history as observation
-            store.add_to_conversation("user", "Observation: Evaluate loop detected. Forcing plan to address evaluator feedback.")
+            store.add_to_conversation(
+                "user",
+                "Observation: Evaluate loop detected. Forcing plan to address evaluator feedback.",
+            )
 
         # Add assistant response to history
         store.add_assistant_response(decision)
@@ -366,7 +386,10 @@ def run_agent(
                         if feedback:
                             print_feedback_dimmed("FEEDBACK", feedback)
                         if missing_items:
-                            missing_strings = [str(item) if not isinstance(item, str) else item for item in missing_items]
+                            missing_strings = [
+                                str(item) if not isinstance(item, str) else item
+                                for item in missing_items
+                            ]
                             print_feedback_dimmed("MISSING", ", ".join(missing_strings))
                         if suggestions:
                             print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
@@ -381,7 +404,10 @@ def run_agent(
                         if feedback:
                             print_feedback_dimmed("FEEDBACK", feedback)
                         if missing_items:
-                            missing_strings = [str(item) if not isinstance(item, str) else item for item in missing_items]
+                            missing_strings = [
+                                str(item) if not isinstance(item, str) else item
+                                for item in missing_items
+                            ]
                             print_feedback_dimmed("MISSING", ", ".join(missing_strings))
                         if suggestions:
                             print_feedback_dimmed("SUGGESTIONS", ", ".join(suggestions))
@@ -400,12 +426,17 @@ def run_agent(
                     # Force plan_action immediately
                     store.dispatch(
                         lambda state: plan_action(
-                            state, model, api_key, tools=store.tools, conversation_history=store.conversation_history, verbose=verbose
+                            state,
+                            model,
+                            api_key,
+                            tools=store.tools,
+                            conversation_history=store.conversation_history,
+                            verbose=verbose,
                         ),
                         verbose=verbose,
                     )
                     recent_actions.append("plan")  # Update to break loop
-                
+
                 # After 2 evaluation failures, force alternative actions
                 if consecutive_failures >= 2:
                     if verbose:
@@ -519,20 +550,28 @@ def run_agent(
                 error_msg = "Max iterations reached"
                 print_retro_banner("TIME EXPIRED", "!", color=Colors.BRIGHT_RED)
                 print_retro_status(
-                    "ERROR", f"Limit of {max_iterations} iterations reached - crashing as requested"
+                    "ERROR",
+                    f"Limit of {max_iterations} iterations reached - crashing as requested",
                 )
                 if verbose:
                     print(f"[ERROR] {error_msg}")
-                raise RuntimeError(f"Agent exceeded max_iterations ({max_iterations}) and crash_if_over_iterations=True")
+                raise RuntimeError(
+                    f"Agent exceeded max_iterations ({max_iterations}) and crash_if_over_iterations=True"
+                )
             else:
                 # Fallback to summarizer on final step
-                print_retro_banner("TIME EXPIRED - SUMMARIZING", "!", color=Colors.BRIGHT_YELLOW)
+                print_retro_banner(
+                    "TIME EXPIRED - SUMMARIZING", "!", color=Colors.BRIGHT_YELLOW
+                )
                 print_retro_status(
-                    "FALLBACK", f"Max iterations ({max_iterations}) reached - calling summarizer to preserve work"
+                    "FALLBACK",
+                    f"Max iterations ({max_iterations}) reached - calling summarizer to preserve work",
                 )
                 if verbose:
-                    print(f"[FALLBACK] Max iterations reached, running summarizer to preserve work")
-                
+                    print(
+                        f"[FALLBACK] Max iterations reached, running summarizer to preserve work"
+                    )
+
                 # Call summarizer to preserve work done so far
                 try:
                     store.dispatch(
@@ -548,7 +587,10 @@ def run_agent(
                     )
                     summary_result = store.state.data.get("summary")
                     if summary_result:
-                        print_retro_status("SUCCESS", "Summary generated successfully despite iteration limit")
+                        print_retro_status(
+                            "SUCCESS",
+                            "Summary generated successfully despite iteration limit",
+                        )
                         return {
                             "result": summary_result,
                             "conversation_history": store.conversation_history,
@@ -563,7 +605,7 @@ def run_agent(
                     print_retro_status("ERROR", f"Summarizer fallback failed: {str(e)}")
                     if verbose:
                         print(f"[ERROR] Summarizer fallback failed: {e}")
-                
+
                 error_msg = "Max iterations reached"
         else:
             error_msg = "Unknown termination reason"

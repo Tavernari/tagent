@@ -176,7 +176,9 @@ def goal_evaluation_action(
     tools: Optional[Dict[str, Callable]] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     verbose: bool = False,
-    store: Optional[Any] = None,  # Store reference for conversation updates (Optional to fix legacy bug)
+    store: Optional[
+        Any
+    ] = None,  # Store reference for conversation updates (Optional to fix legacy bug)
 ) -> Optional[Tuple[str, BaseModel]]:
     """Evaluates if the goal has been achieved via structured output, considering previous feedback."""
     print_retro_status("EVALUATE", "Checking if goal was achieved...")
@@ -247,7 +249,10 @@ def goal_evaluation_action(
                         print_feedback_dimmed("FEEDBACK", evaluation_feedback)
                     missing_items = response.params.get("missing_items", [])
                     if missing_items:
-                        missing_strings = [str(item) if not isinstance(item, str) else item for item in missing_items]
+                        missing_strings = [
+                            str(item) if not isinstance(item, str) else item
+                            for item in missing_items
+                        ]
                         print_feedback_dimmed("MISSING", ", ".join(missing_strings))
                     suggestions = response.params.get("suggestions", [])
                     if suggestions:
