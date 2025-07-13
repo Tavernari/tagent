@@ -362,6 +362,10 @@ def run_agent(
         else:
             # Let AI decide when multiple paths are available
             skip_llm_query = False
+
+            is_summarize_available = ActionType.SUMMARIZE in allowed_actions
+            is_evaluate_available = ActionType.EVALUATE in allowed_actions
+
             prompt = (
                 f"Goal: {goal}\n"
                 f"Current state: {store.state.data}\n"
@@ -378,6 +382,12 @@ def run_agent(
                 f"Available actions for this context: {allowed_action_names}. "
                 "Consider which action would be most effective for achieving the goal."
             )
+
+            if is_summarize_available:
+                prompt += f"\nMandatory: If you want summarize the conversation and, use the {ActionType.SUMMARIZE.value} action."
+            if is_evaluate_available:
+                prompt += f"\nMandatory: If you want evaluate the conversation, use the {ActionType.EVALUATE.value} action."
+
             # Add current prompt to history
             store.add_to_conversation("user", prompt)
 

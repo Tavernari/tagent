@@ -75,7 +75,7 @@ class TabNewsRecentsPostSummaries(BaseModel):
 
 # === Simple Test ===
 
-result = run_agent(
+run_agent_response = run_agent(
     goal="Get the recents tab news, iterate over all url posts and summarize them with max 15 words each in PT-BR.",
     model="ollama/gemma3",
     tools={
@@ -86,6 +86,8 @@ result = run_agent(
     max_iterations=30,
     verbose=False
 )
+
+result = run_agent_response.get("result")
 
 print("--- TabNews Recents Posts ---\n")
 for summary in result.summaries:

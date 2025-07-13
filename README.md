@@ -201,12 +201,67 @@ TAgent Framework
 ## 🔧 Advanced Usage
 
 ### Custom Models
-```bash
-# Use different LLM providers
-tagent "goal" --model openrouter/google/gemma3
-tagent "goal" --model openrouter/ollama/gemma3
-tagent "goal" --model openrouter/openai/04-mini
-```
+TAgent provides a sophisticated model configuration system, allowing you to specify different Large Language Models (LLMs) for various stages of the agent's operation. This offers fine-grained control and optimization, as different tasks (planning, execution, summarization, evaluation, finalization) might benefit from different models (e.g., a faster, cheaper model for simple execution steps, and a more capable one for complex planning).
+
+**Key Concepts:**
+
+-   **Agent Steps:** TAgent's internal lifecycle is broken down into distinct steps: `PLANNER`, `EXECUTOR`, `SUMMARIZER`, `EVALUATOR`, and `FINALIZER`.
+-   **Step-Specific Models:** You can assign a particular LLM to each of these steps.
+-   **Global Fallback Model:** A default model that will be used for any step that doesn't have a specific model assigned.
+-   **Configuration Priority:** The system follows a clear hierarchy to determine which model to use for a given step, from highest to lowest precedence:
+    1.  **`AgentModelConfig` Object (Programmatic):** If you pass an `AgentModelConfig` object to the agent, its step-specific models take the highest precedence, followed by its global model.
+    2.  **Environment Variables:** Step-specific environment variables (e.g., `TAGENT_PLANNER_MODEL`) override the global environment variable (`TAGENT_MODEL`).
+    3.  **CLI `--model` Argument:** The `--model` argument in the CLI sets the global fallback model.
+    4.  **Default Model:** If no other configuration is found, a hardcoded default model (`gpt-3.5-turbo`) is used.
+
+**How to Configure Models:**
+
+You have several ways to configure the models, from most specific (programmatic) to least specific (default):
+
+1.  **Using `AgentModelConfig` (Programmatic - for advanced use cases):**
+    For programmatic control, you can create an `AgentModelConfig` instance and pass it to the agent's `run` method. This allows you to define specific models for each step and a global fallback.
+
+    ```python
+    from src.tagent.model_config import AgentModelConfig
+
+    config = AgentModelConfig(
+        tagent_model="gpt-4o",  # Global fallback for all steps
+        tagent_planner_model="gpt-4o-mini", # Specific model for planning
+        tagent_evaluator_model="gpt-4o-mini", # Specific model for evaluation
+        api_key="sk-your-api-key" # Optional API key for the LLM service
+    )
+    # Then pass this config object to your agent's run method, e.g.:
+    # agent.run(goal="...", config=config)
+    ```
+
+2.  **Using Environment Variables (Recommended for persistent setup):**
+    You can set environment variables to control the models. This is ideal for setting up your preferred models across different runs without modifying code or CLI commands every time.
+
+    *   **Global Model:**
+        ```bash
+        export TAGENT_MODEL="openrouter/google/gemma-7b-it"
+        ```
+        This model will be used for all agent steps unless a step-specific environment variable is set.
+
+    *   **Step-Specific Models:**
+        ```bash
+        export TAGENT_PLANNER_MODEL="openrouter/openai/gpt-4o-mini"
+        export TAGENT_EXECUTOR_MODEL="openrouter/anthropic/claude-3-haiku"
+        export TAGENT_SUMMARIZER_MODEL="openrouter/google/gemma-7b-it"
+        export TAGENT_EVALUATOR_MODEL="openrouter/openai/gpt-4o-mini"
+        export TAGENT_FINALIZER_MODEL="openrouter/google/gemma-7b-it"
+        ```
+        These will override `TAGENT_MODEL` for their respective steps.
+
+3.  **Using the CLI `--model` Argument (Quick and easy):**
+    The existing `--model` argument in the CLI now sets the global fallback model. This is the simplest way to quickly change the model for a single run.
+
+    ```bash
+    tagent "your goal" --model openrouter/google/gemma-7b-it
+    ```
+    If you also have environment variables set, the environment variables will take precedence over the `--model` argument.
+
+This new system provides maximum flexibility, allowing users to tailor the LLM usage to their specific needs, optimizing for cost, speed, or capability at each stage of the agent's operation.
 
 For a complete list of supported models and integrations, please visit the [LiteLLM Provider Documentation](https://docs.litellm.ai/docs/providers).
 
