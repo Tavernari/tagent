@@ -1,334 +1,280 @@
-# 🤖 TAgent - Modular AI Agent Framework
+# TAgent - When You're Tired of Unnecessarily Complex Agent Frameworks
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Version](https://img.shields.io/badge/version-0.4.1-green.svg)](https://github.com/yourusername/tagent2)
 
-> **Build powerful AI agents with modular tools and automatic discovery**
+> **A minimalist, Redux-inspired framework for AI agents that actually makes sense**
 
-TAgent is a production-ready framework for creating AI agents with modular, reusable tools. It features automatic tool discovery, dynamic schema loading, and a powerful CLI for rapid development and deployment.
+Fed up with bloated frameworks that need 50 dependencies and 200 lines of boilerplate just to make a simple automation? TAgent is a straightforward, less verbose approach to building AI agents that solve specific problems without the unnecessary complexity.
 
-**Built on [LiteLLM](https://github.com/BerriAI/litellm)** - Universal LLM API for seamless integration with 100+ language models including OpenAI, Anthropic, Azure, Google, and local models.
+![gif](https://vhs.charm.sh/vhs-dujKmiVTP09yg9gOXAbs5.gif)
 
-## ✨ Key Features
+## Why TAgent?
 
-- 🔍 **Automatic Tool Discovery** - Finds and loads `tagent.tools.py` files automatically
-- 🏗️ **Modular Architecture** - Reusable tools across different projects
-- 📋 **Dynamic Schema Loading** - Pydantic schemas from `tagent.output.py` files
-- 🚀 **Production CLI** - Professional command-line interface with console scripts
-- 🔄 **Intelligent Agent Loop** - State machine-controlled adaptive planning, execution, and evaluation
-- 🎯 **State Machine Control** - Prevents infinite loops and enforces logical action sequences
-- 🛠️ **Rich Tool Ecosystem** - Travel planning, e-commerce, and custom tools
-- 🎯 **Type-Safe Output** - Structured results with Pydantic validation
-- 📝 **Comprehensive Logging** - Beautiful retro-style terminal output
+TAgent follows a simple philosophy: **state-controlled execution with LLM fallbacks**. Instead of complex function calling or massive dependency trees, you get:
 
-## 🚀 Quick Start
+- **Redux-inspired Architecture**: Predictable state management with centralized store
+- **State Machine Control**: Prevents infinite loops and unpredictable behavior  
+- **Structured Outputs**: Works with any LLM via JSON, not function calling
+- **Intelligent Fallbacks**: When tools don't exist, uses LLM knowledge directly
+- **Zero Boilerplate**: Get started with 3 lines of code
 
-### Installation
+## Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/Tavernari/tagent.git
-cd tagent
-
-# One-command setup (creates venv, installs everything)
-make clean-install
-
-# Activate virtual environment
-source .venv/bin/activate
+pip install -e .
 ```
-
-### Basic Usage
-
-```bash
-# Test the CLI with built-in travel tools
-tagent "Plan a trip from London to Rome for 2025-09-10 to 2025-09-17 with budget $2000" \
-  --search-dir examples/travel_planning_cli \
-  --max-iterations 10
-
-# Quick discovery test
-make cli-discovery-test
-
-# See all available commands
-make help
-```
-
-## 📁 Creating Your Own Tools
-
-### 1. Create Tool Functions (`myproject/tagent.tools.py`)
 
 ```python
-from typing import Dict, Any, Tuple, Optional
+from tagent import run_agent
 
-def web_search_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
-    """Search the web for information."""
-    query = args.get('query', '')
-    
-    # Your implementation here
-    results = perform_web_search(query)
-    
-    return ('search_results', results)
+# That's literally all you need to start
+result = run_agent(
+    goal="Translate 'Hello world' to Chinese",
+    model="gpt-4o-mini",
+    max_iterations=3
+)
 
-def data_analysis_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
-    """Analyze data and generate insights."""
-    data = args.get('data', [])
-    
-    # Your analysis logic
-    insights = analyze_data(data)
-    
-    return ('analysis_insights', insights)
+print(result.get("raw_data", {}).get("llm_direct_response"))
+# Output: 你好世界
 ```
 
-### 2. Define Output Schema (`myproject/tagent.output.py`)
+## How It Works Under the Hood
+
+### Deterministic State Machine
+Instead of letting the LLM do whatever it wants, the agent follows a controlled flow:
+
+```
+INITIAL → PLAN → EXECUTE → EVALUATE → (loop until goal achieved)
+```
+
+Each transition is validated, preventing infinite loops and unpredictable behaviors.
+
+### Structured Outputs Over Function Calling
+No function calling dependency. The LLM returns structured JSON validated with Pydantic:
+
+```json
+{
+  "action": "execute",
+  "params": {"tool": "search", "args": {"query": "python"}},
+  "reasoning": "Need to search for Python information"
+}
+```
+
+### Intelligent Fallback System
+If a tool doesn't exist, the agent uses the LLM's own knowledge as fallback. No crashes, no errors - it just works.
 
 ```python
-from pydantic import BaseModel, Field
-from typing import List
-
-class ResearchReport(BaseModel):
-    title: str = Field(..., description="Report title")
-    summary: str = Field(..., description="Executive summary") 
-    findings: List[str] = Field(default=[], description="Key findings")
-    recommendations: List[str] = Field(default=[], description="Actionable recommendations")
-    confidence_score: float = Field(..., description="Confidence in results (0-1)")
-
-# Required variable name
-output_schema = ResearchReport
+# Tool not found? No problem!
+# Agent automatically uses LLM knowledge instead
 ```
 
-### 3. Run Your Agent
+## Real-World Example
 
-```bash
-tagent "Research the latest trends in AI and create a comprehensive report" \
-  --search-dir myproject \
-  --model openrouter/ollama/gemma3 \
-  --verbose
+Here's an agent that extracts and translates TabNews articles:
+
+```python
+def extract_tabnews_articles(state, args):
+    """Extract recent articles from TabNews RSS"""
+    response = requests.get("https://www.tabnews.com.br/recentes/rss")
+    root = ET.fromstring(response.content)
+    
+    articles = []
+    for item in root.findall('.//item'):
+        articles.append({
+            "url": item.find('link').text,
+            "title": item.find('title').text,
+            "publication_date": item.find('pubDate').text
+        })
+    
+    return ("articles", articles)
+
+def translate(state, args):
+    """Translate text using direct LLM call"""
+    text = args.get("text", "")
+    target = args.get("target_language", "")
+    
+    response = litellm.completion(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a professional translator."},
+            {"role": "user", "content": f"Translate to {target}: {text}"}
+        ]
+    )
+    
+    return ("translation", {"translation": response.choices[0].message.content})
+
+# Run the agent
+result = run_agent(
+    goal="Get 1 TabNews article, load content, summarize and translate to Chinese",
+    model="gpt-4o-mini",
+    tools={
+        "extract_tabnews_articles": extract_tabnews_articles,
+        "load_url_content": load_url_content,
+        "translate": translate
+    },
+    max_iterations=15
+)
 ```
 
-## 🎯 Examples
+The agent plans, executes tools in the correct order, and delivers structured results.
 
-### Travel Planning Agent
-```bash
-# Complete travel itinerary with flights, hotels, activities
-tagent "Plan a 7-day trip to Tokyo with cultural activities and budget $3000" \
-  --search-dir examples/travel_planning_cli
+## Tool Ecosystem & Extensibility
+
+Currently no default tools (keeping it minimal), but adapters are being developed for:
+- **CrewAI** tools
+- **LangChain** tools  
+- **Model Context Protocol (MCP)** tools
+
+The idea is to leverage existing ecosystems without being locked into them.
+
+## Why Redux for Agents?
+
+- **Predictable State**: Always know what's happening
+- **Debug Friendly**: Every step is logged and inspectable
+- **Composition**: Tools are pure functions, easy to test
+- **Extensible**: Adding new actions is trivial
+- **Time Travel**: Replay actions for debugging
+
+## Performance & Model Support
+
+Works with any model via LiteLLM:
+- OpenAI (GPT-4, GPT-3.5)
+- Anthropic (Claude)
+- Ollama (local models)
+- OpenRouter
+- Google Gemini
+- Azure OpenAI
+- And 100+ more...
+
+Each action type can use a different model (planning with GPT-4, execution with cheaper model).
+
+## Retro Terminal Experience
+
+Because life's too short for boring UIs:
+
+```
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+▓                 T-AGENT v0.4.1 STARTING                  ▓ 
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+[-] [12:34:56] INIT: Goal: Translate hello world to Chinese
+[#] [12:34:57] PLAN: Generating strategic plan...
+[>] [12:34:58] EXECUTE: Using LLM fallback for translation
+[+] [12:34:59] SUCCESS: Translation completed!
+★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+★                     MISSION COMPLETE                     ★ 
+★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 ```
 
-### E-commerce Analysis  
-```bash
-# Business intelligence and product recommendations
-tagent "Analyze customer data and suggest product improvements" \
-  --search-dir examples/ecommerce \
-  --model openrouter/ollama/gemma3
-```
-
-### Custom Research
-```bash
-# Multi-source research with structured output
-tagent "Research sustainable energy trends and create executive summary" \
-  --tools ./research/tagent.tools.py \
-  --output ./research/tagent.output.py
-```
-
-## 🛠️ CLI Commands
-
-### Development Commands
-```bash
-make help                  # Show all commands
-make install              # Install in virtual environment  
-make clean-install        # Clean install (recommended)
-make test                 # Run test suite
-make lint                 # Code quality checks
-make format               # Format code with black
-```
-
-### CLI Commands
-```bash
-make cli-help             # Show CLI help
-make cli-discovery-test   # Test tool discovery
-make cli-test             # Full travel example
-make cli-demo             # Generate demo GIF
-
-# Direct CLI usage (after source .venv/bin/activate)
-tagent --help
-tagent "your goal" --search-dir path/to/tools
-```
-
-## 🏗️ Architecture
+## Architecture Overview
 
 ```
 TAgent Framework
-├── 🔍 Tool Discovery Engine
-│   ├── Automatic file scanning  
-│   ├── Function signature validation
-│   └── Dynamic imports
-├── 🤖 Intelligent Agent Core
-│   ├── LLM-powered decision making (via LiteLLM)
-│   ├── Adaptive planning
+├── 🎯 State Machine Controller
+│   ├── Deterministic action flow
+│   ├── Loop prevention
+│   └── Transition validation
+├── 🤖 Agent Core
+│   ├── Redux-inspired store
+│   ├── LLM decision making
 │   ├── Tool execution
-│   └── Goal evaluation
-├── 📋 Schema Management
-│   ├── Pydantic integration
-│   ├── Type-safe outputs
-│   └── Validation
-└── 🚀 Production CLI
-    ├── Console scripts
-    ├── Rich terminal UI
-    └── Error handling
+│   └── Intelligent fallbacks
+├── 🛠️ Tool System
+│   ├── Pure function interface
+│   ├── Dynamic discovery
+│   └── Type-safe signatures
+└── 📊 Structured Outputs
+    ├── Pydantic validation
+    ├── JSON schema enforcement
+    └── Type-safe results
 ```
 
-### 🔧 Core Dependencies
+## Advanced Configuration
 
-- **[LiteLLM](https://github.com/BerriAI/litellm)** - Universal LLM integration supporting 100+ models
-- **Pydantic** - Type-safe data validation and schemas
-- **Rich** - Beautiful terminal UI and progress indicators
+### Model Configuration
+```python
+from tagent.model_config import AgentModelConfig
 
-## 📊 Built-in Tools
+config = AgentModelConfig(
+    tagent_model="gpt-4o",  # Global fallback
+    tagent_planner_model="gpt-4o-mini",  # Planning tasks
+    tagent_executor_model="gpt-3.5-turbo",  # Tool execution
+    api_key="your-api-key"
+)
 
-### Travel Planning (`examples/travel_planning_cli/`)
-- ✈️ Flight search with budget filtering
-- 🏨 Hotel recommendations with preferences
-- 🎯 Activity suggestions by interest
-- 💰 Cost calculation and budgeting
-- 📝 Itinerary generation
-
-### E-commerce (`examples/ecommerce/`)
-- 📈 Sales analysis and trends
-- 👥 Customer behavior insights
-- 🛍️ Product recommendations
-- 💡 Business intelligence
-
-## 🔧 Advanced Usage
-
-### Custom Models
-TAgent provides a sophisticated model configuration system, allowing you to specify different Large Language Models (LLMs) for various stages of the agent's operation. This offers fine-grained control and optimization, as different tasks (planning, execution, summarization, evaluation, finalization) might benefit from different models (e.g., a faster, cheaper model for simple execution steps, and a more capable one for complex planning).
-
-**Key Concepts:**
-
--   **Agent Steps:** TAgent's internal lifecycle is broken down into distinct steps: `PLANNER`, `EXECUTOR`, `SUMMARIZER`, `EVALUATOR`, and `FINALIZER`.
--   **Step-Specific Models:** You can assign a particular LLM to each of these steps.
--   **Global Fallback Model:** A default model that will be used for any step that doesn't have a specific model assigned.
--   **Configuration Priority:** The system follows a clear hierarchy to determine which model to use for a given step, from highest to lowest precedence:
-    1.  **`AgentModelConfig` Object (Programmatic):** If you pass an `AgentModelConfig` object to the agent, its step-specific models take the highest precedence, followed by its global model.
-    2.  **Environment Variables:** Step-specific environment variables (e.g., `TAGENT_PLANNER_MODEL`) override the global environment variable (`TAGENT_MODEL`).
-    3.  **CLI `--model` Argument:** The `--model` argument in the CLI sets the global fallback model.
-    4.  **Default Model:** If no other configuration is found, a hardcoded default model (`gpt-3.5-turbo`) is used.
-
-**How to Configure Models:**
-
-You have several ways to configure the models, from most specific (programmatic) to least specific (default):
-
-1.  **Using `AgentModelConfig` (Programmatic - for advanced use cases):**
-    For programmatic control, you can create an `AgentModelConfig` instance and pass it to the agent's `run` method. This allows you to define specific models for each step and a global fallback.
-
-    ```python
-    from src.tagent.model_config import AgentModelConfig
-
-    config = AgentModelConfig(
-        tagent_model="gpt-4o",  # Global fallback for all steps
-        tagent_planner_model="gpt-4o-mini", # Specific model for planning
-        tagent_evaluator_model="gpt-4o-mini", # Specific model for evaluation
-        api_key="sk-your-api-key" # Optional API key for the LLM service
-    )
-    # Then pass this config object to your agent's run method, e.g.:
-    # agent.run(goal="...", config=config)
-    ```
-
-2.  **Using Environment Variables (Recommended for persistent setup):**
-    You can set environment variables to control the models. This is ideal for setting up your preferred models across different runs without modifying code or CLI commands every time.
-
-    *   **Global Model:**
-        ```bash
-        export TAGENT_MODEL="openrouter/google/gemma-7b-it"
-        ```
-        This model will be used for all agent steps unless a step-specific environment variable is set.
-
-    *   **Step-Specific Models:**
-        ```bash
-        export TAGENT_PLANNER_MODEL="openrouter/openai/gpt-4o-mini"
-        export TAGENT_EXECUTOR_MODEL="openrouter/anthropic/claude-3-haiku"
-        export TAGENT_SUMMARIZER_MODEL="openrouter/google/gemma-7b-it"
-        export TAGENT_EVALUATOR_MODEL="openrouter/openai/gpt-4o-mini"
-        export TAGENT_FINALIZER_MODEL="openrouter/google/gemma-7b-it"
-        ```
-        These will override `TAGENT_MODEL` for their respective steps.
-
-3.  **Using the CLI `--model` Argument (Quick and easy):**
-    The existing `--model` argument in the CLI now sets the global fallback model. This is the simplest way to quickly change the model for a single run.
-
-    ```bash
-    tagent "your goal" --model openrouter/google/gemma-7b-it
-    ```
-    If you also have environment variables set, the environment variables will take precedence over the `--model` argument.
-
-This new system provides maximum flexibility, allowing users to tailor the LLM usage to their specific needs, optimizing for cost, speed, or capability at each stage of the agent's operation.
-
-For a complete list of supported models and integrations, please visit the [LiteLLM Provider Documentation](https://docs.litellm.ai/docs/providers).
-
-### Multiple Tool Directories
-```bash
-# Search multiple directories
-tagent "complex task" \
-  --search-dir ./core-tools \
-  --search-dir ./specialized-tools \
-  --search-dir ./custom-tools \
-  --recursive
+result = run_agent(
+    goal="Complex multi-step task",
+    model=config,  # Pass config instead of string
+    tools=my_tools,
+    max_iterations=20
+)
 ```
 
-### API Configuration
-
+### Environment Variables
 ```bash
-# Set API key
+export TAGENT_MODEL="gpt-4o-mini"
+export TAGENT_PLANNER_MODEL="gpt-4o"
 export OPENAI_API_KEY="your-key"
-# or
-tagent "goal" --api-key your-key-here
 ```
 
-## 🎬 Demo
+## Try It Yourself
 
-Generate an animated demo:
 ```bash
-make cli-demo  # Creates examples/tagent_cli_demo.gif
+# Clone the repository
+git clone https://github.com/yourusername/tagent2
+cd tagent2
+
+# Install in development mode
+pip install -e .
+
+# Run the TabNews example
+python examples/tab_news_analyzer/tabnews_code_example.py
 ```
 
-## 🤝 Contributing
+## Examples Directory
 
-1. **Fork the repository**
-2. **Create feature branch**: `git checkout -b feature/amazing-feature`
-3. **Follow code style**: `make format && make lint`
-4. **Add tests**: `pytest tests/`
-5. **Commit changes**: `git commit -m "Add amazing feature"`
-6. **Push branch**: `git push origin feature/amazing-feature`
-7. **Open Pull Request**
+Check out the `/examples` folder for real implementations:
 
-### Development Setup
-```bash
-git clone https://github.com/Tavernari/tagent.git
-cd tagent
-make clean-install
-source .venv/bin/activate
-make test
-```
+- **`tab_news_analyzer/`** - Extract and translate TabNews articles
+- **`travel_planning/`** - Multi-step travel planning agent
+- **`simple_qa/`** - Direct question answering without tools
 
-## 📝 License
+Each example shows different patterns and use cases.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Roadmap
 
-## 🌟 Why TAgent?
+- [ ] CrewAI/LangChain/MCP tool adapters
+- [ ] Persistent memory system
+- [ ] Default tool library (web search, file ops)
+- [ ] Optional web interface
+- [ ] Multi-agent orchestration
+- [ ] Tool marketplace/registry
 
-- **🔥 Rapid Development**: Create agents in minutes, not hours
-- **🔧 Modular Design**: Reuse tools across projects
-- **🚀 Production Ready**: Professional CLI and error handling
-- **🎯 Type Safety**: Pydantic schemas ensure data integrity
-- **🤖 Intelligent**: LLM-powered adaptive behavior
-- **📈 Scalable**: From prototypes to production systems
+## Contributing
 
-## 🎉 Star History
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes
+4. Add tests if applicable
+5. Commit: `git commit -m "Add amazing feature"`
+6. Push: `git push origin feature/amazing-feature`
+7. Open a Pull Request
 
-If TAgent helps you build amazing AI agents, please give it a ⭐!
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Conclusion
+
+TAgent won't solve all the world's problems, but if you want to create agents without headaches and with code you can understand 6 months later, it might be worth a look.
+
+The framework is small (<2000 lines), focused, and each component has a clear responsibility. Sometimes simple is better.
 
 ---
 
-**Built with ❤️ for the AI community**
+**Repository:** https://github.com/yourusername/tagent2  
+**License:** MIT  
+**Version:** 0.4.1
 
-[🐛 Report Bug](https://github.com/Tavernari/tagent/issues) | [✨ Request Feature](https://github.com/Tavernari/tagent2/issues)
+*If you made it this far and found it interesting, leave a star on GitHub. If you didn't like it, open an issue and complain - feedback is always welcome.*
