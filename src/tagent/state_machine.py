@@ -88,7 +88,6 @@ class AgentStateMachine:
             
             # From SUMMARIZING state - must go to EVALUATE (mandatory)
             StateTransitionRule(AgentState.SUMMARIZING, ActionType.EVALUATE, AgentState.EVALUATING),
-            StateTransitionRule(AgentState.SUMMARIZING, ActionType.EXECUTE, AgentState.EXECUTING),
             
             # From EVALUATING state - can go to PLAN, EXECUTE, or FINALIZE
             StateTransitionRule(AgentState.EVALUATING, ActionType.PLAN, AgentState.PLANNING),

@@ -866,6 +866,23 @@ def run_agent(
                     ),
                     verbose=verbose,
                 )
+                
+                # Check if goal was achieved after auto-evaluation
+                auto_eval_achieved = store.state.data.get("achieved", False)
+                if auto_eval_achieved:
+                    print_retro_status("SUCCESS", "Goal achieved during auto-evaluation! Ready to finalize.")
+                    # Transition to FINALIZING state to break the loop
+                    if state_machine.is_action_allowed(ActionType.FINALIZE, store.state.data):
+                        state_machine.transition(ActionType.FINALIZE)
+                        print_retro_status("AUTO_FINALIZE", "Auto-transitioning to finalize...")
+                    else:
+                        # If finalize not allowed, transition to PLANNING to ensure proper flow
+                        state_machine.transition(ActionType.PLAN)
+                        print_retro_status("AUTO_PLAN", "Auto-transitioning to planning...")
+                else:
+                    # If goal not achieved, transition back to planning for next steps
+                    state_machine.transition(ActionType.PLAN)
+                    print_retro_status("AUTO_PLAN", "Auto-transitioning to planning after evaluation...")
         elif decision.action == "evaluate":
             print_retro_status("EVALUATE", "Evaluating if goal was achieved...")
             # Store previous state to detect change
