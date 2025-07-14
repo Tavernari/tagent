@@ -1138,7 +1138,7 @@ def run_agent(
             else:
                 # Fallback to summarizer on final step
                 print_retro_banner(
-                    "TIME EXPIRED - SUMMARIZING", "!", color=Colors.BRIGHT_YELLOW
+                    "TIME EXPIRED - SUMMARIZING", "!", 60, MessageType.WARNING
                 )
                 print_retro_status(
                     "FALLBACK",
