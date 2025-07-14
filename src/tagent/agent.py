@@ -228,6 +228,8 @@ def _execute_llm_fallback(
 # === Main Agent Loop ===
 def run_agent(
     goal: str,
+    config: Optional['TAgentConfig'] = None,
+    # Legacy parameters for backward compatibility
     model: Union[str, AgentModelConfig] = "gpt-3.5-turbo",
     api_key: Optional[str] = None,
     max_iterations: int = 20,
@@ -241,6 +243,10 @@ def run_agent(
 
     Args:
         goal: The main objective for the agent.
+        config: TAgentConfig object containing all configuration options.
+                If None, will use legacy parameters and environment variables.
+        
+        # Legacy parameters (for backward compatibility):
         model: Either a model string (e.g., "gpt-4") for backward compatibility,
             or an AgentModelConfig object for step-specific model configuration.
         api_key: The API key for the LLM service (deprecated - use AgentModelConfig).
@@ -254,23 +260,65 @@ def run_agent(
     Returns:
         An instance of the `output_format` model, or None if no output is generated.
     """
-    # Handle backward compatibility: convert string model to AgentModelConfig
-    if isinstance(model, str):
-        model_config = create_config_from_string(model, api_key)
-    elif isinstance(model, AgentModelConfig):
-        model_config = model
-        # If api_key is provided separately and config doesn't have it, use the parameter
-        if api_key and not model_config.api_key:
-            model_config.api_key = api_key
+    # Handle configuration: use TAgentConfig if provided, otherwise use legacy parameters
+    if config is None:
+        # Import here to avoid circular imports
+        from .config import TAgentConfig
+        
+        # Create config from legacy parameters and environment
+        config = TAgentConfig(
+            model=model,
+            api_key=api_key,
+            max_iterations=max_iterations,
+            tools=tools,
+            output_format=output_format,
+            verbose=verbose,
+            crash_if_over_iterations=crash_if_over_iterations,
+        )
+        
+        # Override with environment variables
+        config = config.merge(TAgentConfig.from_env())
     else:
-        raise ValueError(f"model parameter must be either str or AgentModelConfig, got {type(model)}")
+        # Override config with any explicitly provided legacy parameters
+        override_dict = {}
+        if model != "gpt-3.5-turbo":  # Only override if not default
+            override_dict["model"] = model
+        if api_key is not None:
+            override_dict["api_key"] = api_key
+        if max_iterations != 20:  # Only override if not default
+            override_dict["max_iterations"] = max_iterations
+        if tools is not None:
+            override_dict["tools"] = tools
+        if output_format is not None:
+            override_dict["output_format"] = output_format
+        if verbose:  # Only override if True
+            override_dict["verbose"] = verbose
+        if crash_if_over_iterations:  # Only override if True
+            override_dict["crash_if_over_iterations"] = crash_if_over_iterations
+        
+        if override_dict:
+            from .config import TAgentConfig
+            config = config.merge(TAgentConfig.from_dict(override_dict))
+    
+    # Extract values from config
+    model_config = config.get_model_config()
+    max_iterations = config.max_iterations
+    tools = config.tools
+    output_format = config.output_format
+    verbose = config.verbose
+    crash_if_over_iterations = config.crash_if_over_iterations
+    
+    # Set UI style
+    from .ui import set_ui_style
+    set_ui_style(config.ui_style)
     
     # Create the centralized model selector
     model_selector = AgentModelSelector(model_config)
     
     # 90s Style Agent Initialization
+    from .ui import print_retro_banner, print_retro_status, MessageType
     print_retro_banner(
-        f"T-AGENT v{__version__} STARTING", "▓", color=Colors.BRIGHT_MAGENTA
+        f"T-AGENT v{__version__} STARTING", "▓", 60, MessageType.PRIMARY
     )
     print_retro_status("INIT", f"Goal: {goal[:40]}...")
     print_retro_status(
@@ -332,7 +380,7 @@ def run_agent(
                     print(f"[DEBUG] Direct answer failed: {e}")
                 print_retro_status("WARNING", "Direct answer failed - proceeding with normal flow")
 
-    print_retro_banner("STARTING MAIN LOOP", "~", color=Colors.BRIGHT_GREEN)
+    print_retro_banner("STARTING MAIN LOOP", "~", 60, MessageType.SUCCESS)
     iteration = 0
     while (
         state_machine.current_state not in [AgentState.COMPLETED, AgentState.FAILED]
@@ -1001,7 +1049,7 @@ def run_agent(
             )
 
     if state_machine.current_state == AgentState.COMPLETED:
-        print_retro_banner("MISSION COMPLETE", "★", color=Colors.BRIGHT_GREEN)
+        print_retro_banner("MISSION COMPLETE", "★", 60, MessageType.SUCCESS)
         print_retro_status("SUCCESS", "Goal achieved successfully!")
         if verbose:
             print("[SUCCESS] Goal achieved!")
@@ -1054,13 +1102,13 @@ def run_agent(
         # Determine stop reason
         if state_machine.current_state == AgentState.FAILED:
             error_msg = "Agent failed during finalization."
-            print_retro_banner("MISSION FAILED", "!", color=Colors.BRIGHT_RED)
+            print_retro_banner("MISSION FAILED", "!", 60, MessageType.ERROR)
             print_retro_status("ERROR", error_msg)
         elif consecutive_failures >= max_consecutive_failures:
             error_msg = (
                 f"Stopped due to {consecutive_failures} consecutive evaluator failures"
             )
-            print_retro_banner("MISSION INTERRUPTED", "!", color=Colors.BRIGHT_RED)
+            print_retro_banner("MISSION INTERRUPTED", "!", 60, MessageType.ERROR)
             print_retro_status(
                 "ERROR", f"Stopped by {consecutive_failures} consecutive failures"
             )
@@ -1069,7 +1117,7 @@ def run_agent(
         elif iteration >= max_iterations:
             if crash_if_over_iterations:
                 error_msg = "Max iterations reached"
-                print_retro_banner("TIME EXPIRED", "!", color=Colors.BRIGHT_RED)
+                print_retro_banner("TIME EXPIRED", "!", 60, MessageType.ERROR)
                 print_retro_status(
                     "ERROR",
                     f"Limit of {max_iterations} iterations reached - crashing as requested",
@@ -1181,7 +1229,7 @@ def run_agent(
                 }
         else:
             error_msg = "Unknown termination reason"
-            print_retro_banner("UNEXPECTED STOP", "!", color=Colors.BRIGHT_RED)
+            print_retro_banner("UNEXPECTED STOP", "!", 60, MessageType.ERROR)
             print_retro_status("ERROR", "Unknown stop reason")
             if verbose:
                 print(f"[WARNING] {error_msg}")

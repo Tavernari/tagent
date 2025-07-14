@@ -28,23 +28,85 @@ pip install -e .
 
 ```python
 from tagent import run_agent
+from tagent.config import TAgentConfig
 
-# That's literally all you need to start
+# Simple usage with configuration
+config = TAgentConfig(
+    model="gpt-4o-mini",
+    max_iterations=3,
+    verbose=True
+)
+
 result = run_agent(
     goal="Translate 'Hello world' to Chinese",
-    model="gpt-4o-mini",
-    max_iterations=3
+    config=config
 )
 
 print(result.get("raw_data", {}).get("llm_direct_response"))
 # Output: 你好世界
 ```
 
-## CLI Tool Configuration
+## Configuration System
 
-TAgent provides a CLI for running agents with dynamic tool discovery. The CLI automatically discovers and loads tools from your project structure.
+TAgent v0.4.1 introduces a comprehensive configuration system that centralizes all agent settings. You can configure UI style, model settings, execution parameters, and more.
 
-### Basic Usage
+### Basic Configuration
+
+```python
+from tagent import run_agent
+from tagent.config import TAgentConfig
+from tagent.ui.factory import UIStyle
+
+# Create configuration
+config = TAgentConfig(
+    model="gpt-4o-mini",
+    max_iterations=10,
+    verbose=True,
+    ui_style=UIStyle.INSTITUTIONAL,  # or UIStyle.ANIMATED
+    api_key="your-api-key"
+)
+
+# Use configuration
+result = run_agent("Your goal here", config=config)
+```
+
+### Environment Variables
+
+Configure TAgent using environment variables:
+
+```bash
+export TAGENT_MODEL="gpt-4o-mini"
+export TAGENT_MAX_ITERATIONS=20
+export TAGENT_VERBOSE=true
+export TAGENT_UI_STYLE=institutional  # or animated
+export TAGENT_API_KEY="your-api-key"
+```
+
+### UI Styles
+
+TAgent supports two UI styles:
+
+#### Animated UI (Matrix-style)
+- Retro terminal effects with typing animations
+- Blinking cursor and thinking animations
+- Colorful output perfect for demonstrations
+
+#### Institutional UI (Server-focused)
+- Clean, structured logging: `timestamp [LEVEL] COMPONENT: message`
+- No animations, optimized for server environments
+- Perfect for production and log analysis
+
+```python
+# Set UI style programmatically
+from tagent.ui import set_ui_style
+from tagent.ui.factory import UIStyle
+
+set_ui_style(UIStyle.INSTITUTIONAL)
+```
+
+### CLI Tool Configuration
+
+TAgent provides a CLI for running agents with dynamic tool discovery:
 
 ```bash
 # Run without tools (uses LLM knowledge only)
@@ -182,16 +244,21 @@ def translate(state, args):
     
     return ("translation", {"translation": response.choices[0].message.content})
 
-# Run the agent
-result = run_agent(
-    goal="Get 1 TabNews article, load content, summarize and translate to Chinese",
+# Run the agent with configuration
+config = TAgentConfig(
     model="gpt-4o-mini",
+    max_iterations=15,
     tools={
         "extract_tabnews_articles": extract_tabnews_articles,
         "load_url_content": load_url_content,
         "translate": translate
     },
-    max_iterations=15
+    verbose=True
+)
+
+result = run_agent(
+    goal="Get 1 TabNews article, load content, summarize and translate to Chinese",
+    config=config
 )
 ```
 
@@ -227,9 +294,10 @@ Works with any model via LiteLLM:
 
 Each action type can use a different model (planning with GPT-4, execution with cheaper model).
 
-## Retro Terminal Experience
+## UI Styles in Action
 
-Because life's too short for boring UIs:
+### Animated UI (Matrix-style)
+Perfect for demonstrations and interactive use:
 
 ```
 ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
@@ -242,6 +310,30 @@ Because life's too short for boring UIs:
 ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 ★                     MISSION COMPLETE                     ★ 
 ★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+```
+
+### Institutional UI (Server-focused)
+Clean, structured logging for production environments:
+
+```
+2025-07-14 12:34:56 [INFO ] SYSTEM: Banner: T-AGENT v0.4.1 STARTING
+2025-07-14 12:34:56 [INFO ] AGENT: INIT: Goal: Translate hello world to Chinese
+2025-07-14 12:34:57 [INFO ] PLANNER: Plan: Generate strategic plan for translation
+2025-07-14 12:34:58 [INFO ] EXECUTE: Using LLM fallback for translation
+2025-07-14 12:34:59 [INFO ] AGENT: SUCCESS: Translation completed!
+```
+
+Choose the style that fits your environment:
+
+```python
+from tagent.config import TAgentConfig
+from tagent.ui.factory import UIStyle
+
+# For development/demos
+config = TAgentConfig(ui_style=UIStyle.ANIMATED)
+
+# For production/servers
+config = TAgentConfig(ui_style=UIStyle.INSTITUTIONAL)
 ```
 
 ## Architecture Overview
@@ -271,28 +363,72 @@ TAgent Framework
 
 ### Model Configuration
 ```python
+from tagent.config import TAgentConfig
 from tagent.model_config import AgentModelConfig
 
-config = AgentModelConfig(
+# Advanced model configuration with step-specific models
+model_config = AgentModelConfig(
     tagent_model="gpt-4o",  # Global fallback
     tagent_planner_model="gpt-4o-mini",  # Planning tasks
     tagent_executor_model="gpt-3.5-turbo",  # Tool execution
     api_key="your-api-key"
 )
 
+config = TAgentConfig(
+    model=model_config,  # Pass advanced model config
+    max_iterations=20,
+    verbose=True,
+    ui_style=UIStyle.INSTITUTIONAL
+)
+
 result = run_agent(
     goal="Complex multi-step task",
-    model=config,  # Pass config instead of string
-    tools=my_tools,
-    max_iterations=20
+    config=config
 )
+```
+
+### Configuration File Support
+```python
+from tagent.config import load_config
+
+# Load from JSON file
+config = load_config("config.json")
+
+# Load from YAML file (requires PyYAML)
+config = load_config("config.yaml")
+
+# Load with environment override
+config = load_config("config.json", env_override=True)
+```
+
+### Configuration Merging
+```python
+from tagent.config import TAgentConfig
+
+# Base configuration
+base_config = TAgentConfig(
+    model="gpt-4o-mini",
+    max_iterations=10
+)
+
+# Override specific settings
+prod_config = TAgentConfig(
+    ui_style=UIStyle.INSTITUTIONAL,
+    verbose=False
+)
+
+# Merge configurations
+final_config = base_config.merge(prod_config)
 ```
 
 ### Environment Variables
 ```bash
 export TAGENT_MODEL="gpt-4o-mini"
 export TAGENT_PLANNER_MODEL="gpt-4o"
-export OPENAI_API_KEY="your-key"
+export TAGENT_MAX_ITERATIONS=20
+export TAGENT_VERBOSE=true
+export TAGENT_UI_STYLE=institutional
+export TAGENT_API_KEY="your-key"
 ```
 
 ## Try It Yourself
@@ -324,6 +460,26 @@ Check out the `/examples` folder for real implementations:
 - **`simple_qa/`** - Direct question answering without tools
 
 Each example shows different patterns and use cases.
+
+## What's New in v0.4.1
+
+### Configuration System
+- ✅ Centralized configuration via `TAgentConfig`
+- ✅ Environment variable support
+- ✅ Configuration file support (JSON/YAML)
+- ✅ Configuration merging and inheritance
+
+### UI System Redesign
+- ✅ Modular UI architecture with strategy pattern
+- ✅ **Animated UI**: Matrix-style terminal effects
+- ✅ **Institutional UI**: Clean structured logging
+- ✅ Runtime UI style switching
+
+### Developer Experience
+- ✅ Better error handling and diagnostics
+- ✅ Improved debugging capabilities
+- ✅ Type-safe configuration system
+- ✅ Comprehensive documentation
 
 ## Roadmap
 
