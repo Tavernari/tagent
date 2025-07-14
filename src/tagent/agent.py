@@ -382,28 +382,29 @@ def run_agent(
 
     print_retro_banner("STARTING MAIN LOOP", "~", 60, MessageType.SUCCESS)
     iteration = 0
+    execute_count = 0  # Count only EXECUTE actions
     while (
         state_machine.current_state not in [AgentState.COMPLETED, AgentState.FAILED]
-        and iteration < max_iterations
+        and execute_count < max_iterations
         and consecutive_failures < max_consecutive_failures
     ):
         iteration += 1
 
-        # Add step counting warnings
-        remaining_steps = max_iterations - iteration
-        if remaining_steps <= 3:
+        # Add step counting warnings based on execute count
+        remaining_executes = max_iterations - execute_count
+        if remaining_executes <= 3:
             print_retro_status(
                 "WARNING",
-                f"Only {remaining_steps} steps remaining before reaching max iterations ({max_iterations})",
+                f"Only {remaining_executes} execute actions remaining before reaching limit ({max_iterations})",
             )
 
         if verbose:
             print(
-                f"[LOOP] Iteration {iteration}/{max_iterations}. "
+                f"[LOOP] Step {iteration} (Executes: {execute_count}/{max_iterations}). "
                 f"Current state: {store.state.data}"
             )
         else:
-            print_retro_status("STEP", f"Step {iteration}/{max_iterations}")
+            print_retro_status("STEP", f"Step {iteration} (Executes: {execute_count}/{max_iterations})")
 
         # Check if there was real progress (reset failure counter)
         data_keys = [
@@ -486,16 +487,16 @@ def run_agent(
                     evaluation_feedback += f"\nSUGGESTIONS: {suggestions}"
                 evaluation_feedback += "\nACT ON THIS FEEDBACK TO IMPROVE THE RESULT.\n"
 
-        # Add step count warnings to prompt
-        remaining_steps = max_iterations - iteration
-        step_warning = ""
-        if remaining_steps <= 5:
-            if remaining_steps <= 1:
-                step_warning = f"⚠️ Only {remaining_steps} step remaining. Focus on goal completion to maximize progress. "
-            elif remaining_steps <= 2:
-                step_warning = f"⚠️ {remaining_steps} steps remaining. Prioritize actions that advance toward the goal. "
+        # Add execute count warnings to prompt
+        remaining_executes = max_iterations - execute_count
+        execute_warning = ""
+        if remaining_executes <= 5:
+            if remaining_executes <= 1:
+                execute_warning = f"⚠️ Only {remaining_executes} execute action remaining. Focus on goal completion to maximize progress. "
+            elif remaining_executes <= 2:
+                execute_warning = f"⚠️ {remaining_executes} execute actions remaining. Prioritize actions that advance toward the goal. "
             else:
-                step_warning = f"⚠️ {remaining_steps} steps left. Be efficient. "
+                execute_warning = f"⚠️ {remaining_executes} execute actions left. Be efficient. "
 
         # Add instruction to avoid evaluate after failure
         evaluate_guidance = ""
@@ -603,7 +604,7 @@ def run_agent(
                 f"Goal: {goal}\n"
                 f"Current state: {store.state.data}\n"
                 f"{progress_summary}\n"
-                f"Step {iteration}/{max_iterations}. {step_warning}\n"
+                f"Step {iteration} (Execute count: {execute_count}/{max_iterations}). {execute_warning}\n"
                 f"Used tools: {used_tools}\n"
                 f"Unused tools: {unused_tools}\n"
                 f"{evaluation_feedback}"
@@ -710,6 +711,9 @@ def run_agent(
             # Update state machine AFTER successful execution
             state_machine.transition(action_type)
         elif decision.action == "execute":
+            # Increment execute count for this action
+            execute_count += 1
+            
             # Extract tool and args from the main decision
             tool_name = decision.params.get("tool")
             tool_args = decision.params.get("args", {})
@@ -1074,6 +1078,7 @@ def run_agent(
                 ),
                 "status": "completed_with_formatting",
                 "iterations_used": iteration,
+                "executes_used": execute_count,
                 "max_iterations": max_iterations,
             }
             return final_result_with_chat
@@ -1090,6 +1095,7 @@ def run_agent(
                 "status": "completed_without_formatting",
                 "error": "Formatting failed, but an output format was provided.",
                 "iterations_used": iteration,
+                "executes_used": execute_count,
                 "max_iterations": max_iterations,
             }
         else:
@@ -1104,6 +1110,7 @@ def run_agent(
                 ),
                 "status": "completed_without_formatting",
                 "iterations_used": iteration,
+                "executes_used": execute_count,
                 "max_iterations": max_iterations,
             }
     else:
@@ -1122,18 +1129,18 @@ def run_agent(
             )
             if verbose:
                 print(f"[WARNING] {error_msg}")
-        elif iteration >= max_iterations:
+        elif execute_count >= max_iterations:
             if crash_if_over_iterations:
-                error_msg = "Max iterations reached"
+                error_msg = "Max execute actions reached"
                 print_retro_banner("TIME EXPIRED", "!", 60, MessageType.ERROR)
                 print_retro_status(
                     "ERROR",
-                    f"Limit of {max_iterations} iterations reached - crashing as requested",
+                    f"Limit of {max_iterations} execute actions reached - crashing as requested",
                 )
                 if verbose:
                     print(f"[ERROR] {error_msg}")
                 raise RuntimeError(
-                    f"Agent exceeded max_iterations ({max_iterations}) and crash_if_over_iterations=True"
+                    f"Agent exceeded max_iterations ({max_iterations}) execute actions and crash_if_over_iterations=True"
                 )
             else:
                 # Fallback to summarizer on final step
@@ -1142,11 +1149,11 @@ def run_agent(
                 )
                 print_retro_status(
                     "FALLBACK",
-                    f"Max iterations ({max_iterations}) reached - calling summarizer to preserve work",
+                    f"Max execute actions ({max_iterations}) reached - calling summarizer to preserve work",
                 )
                 if verbose:
                     print(
-                        f"[FALLBACK] Max iterations reached, running summarizer to preserve work"
+                        f"[FALLBACK] Max execute actions reached, running summarizer to preserve work"
                     )
 
                 # Call summarizer to preserve work done so far
@@ -1156,7 +1163,7 @@ def run_agent(
                 
                 try:
                     # Update state machine to reflect we're moving to SUMMARIZE
-                    print_retro_status("STATE_AUTO", "Max iterations reached - forcing SUMMARIZE action")
+                    print_retro_status("STATE_AUTO", "Max execute actions reached - forcing SUMMARIZE action")
                     state_machine.transition(ActionType.SUMMARIZE)
                     
                     store.dispatch(
@@ -1227,7 +1234,7 @@ def run_agent(
                 # Always return available context, even if summarizer/evaluator failed
                 print_retro_status("CONTEXT_OUTPUT", "Generating output with available context...")
                 return {
-                    "result": formatted_result or summary_result or "Max iterations reached - returning available context",
+                    "result": formatted_result or summary_result or "Max execute actions reached - returning available context",
                     "evaluation": evaluation_result,
                     "raw_data": store.state.data,
                     "conversation_history": store.conversation_history,
@@ -1236,6 +1243,7 @@ def run_agent(
                     ),
                     "status": "completed_with_summary_fallback",
                     "iterations_used": iteration,
+                    "executes_used": execute_count,
                     "max_iterations": max_iterations,
                     "formatted_output": formatted_result is not None,
                     "summary_generated": summary_result is not None,
@@ -1256,6 +1264,7 @@ def run_agent(
             "error": error_msg,
             "final_state": store.state.data,
             "iterations_used": iteration,
+            "executes_used": execute_count,
             "max_iterations": max_iterations,
         }
 
