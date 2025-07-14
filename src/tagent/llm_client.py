@@ -46,6 +46,7 @@ def query_llm_for_model(
     api_key: Optional[str] = None,
     max_retries: int = 3,
     verbose: bool = False,
+    conversation_history: Optional[List[Dict[str, str]]] = None,  # Added parameter
 ) -> BaseModel:
     """
     Queries an LLM and enforces the output to conform to a specific Pydantic model.
@@ -75,7 +76,9 @@ def query_llm_for_model(
             ),
         }
 
-        messages = [system_message, user_message]
+        # Prepend conversation history if available
+        messages = conversation_history + [user_message] if conversation_history else [user_message]
+        messages.insert(0, system_message)
 
         supported_params = litellm.get_supported_openai_params(model=model)
         response_format = (
@@ -89,7 +92,7 @@ def query_llm_for_model(
                 response_format=response_format,
                 temperature=0.0,
                 api_key=api_key,
-                model_kwargs=({"strict": True} if "strict" in supported_params else {}),
+                model_kwargs={"strict": True} if "strict" in supported_params else {},
             )
             json_str = response.choices[0].message.content.strip()
             if verbose:

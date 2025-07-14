@@ -452,12 +452,20 @@ def format_output_action(
     output_format: Type[BaseModel],
     verbose: bool = False,
     config: Optional[AgentModelConfig] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """Formats the final output according to the specified Pydantic model."""
     print_retro_status("FORMAT", "Structuring final result...")
     goal = state.get("goal", "")
+
+    # Add conversation history to the prompt for better context
+    conversation_summary = "\n".join(
+        [f"{msg['role']}: {msg['content']}" for msg in conversation_history]
+    ) if conversation_history else "No conversation history available."
+
     prompt = (
-        f"Based on the final state: {state} and the original goal: '{goal}'. "
+        f"Based on the final state: {state}, the original goal: '{goal}', and the conversation history, "
+        f"please structure the final result. Conversation History:\n{conversation_summary}\n\n"
         "Extract and format all relevant data collected during the goal "
         "execution. Create appropriate summaries and ensure all required "
         "fields are filled according to the output schema."
@@ -466,7 +474,12 @@ def format_output_action(
     try:
         finalizer_model = get_finalizer_model(model, config)
         formatted_output = query_llm_for_model(
-            prompt, finalizer_model, output_format, api_key, verbose=verbose
+            prompt,
+            finalizer_model,
+            output_format,
+            api_key,
+            verbose=verbose,
+            conversation_history=conversation_history,
         )
     finally:
         stop_thinking()
@@ -481,6 +494,7 @@ def format_fallback_output_action(
     output_format: Type[BaseModel],
     verbose: bool = False,
     config: Optional[AgentModelConfig] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """
     Formats output with fallback handling for incomplete data.
@@ -491,9 +505,14 @@ def format_fallback_output_action(
     """
     print_retro_status("FORMAT_FALLBACK", "Structuring available data...")
     goal = state.get("goal", "")
+
+    conversation_summary = "\n".join(
+        [f"{msg['role']}: {msg['content']}" for msg in conversation_history]
+    ) if conversation_history else "No conversation history available."
     
     prompt = (
         f"Based on the current state: {state} and the original goal: '{goal}'. "
+        f"Here is the conversation history that led to this state:\n{conversation_summary}\n\n"
         "Note: The goal may not be fully achieved and data may be incomplete. "
         "Please extract and format available data collected so far according to the output schema. "
         "For missing required fields, provide reasonable defaults or indicate unavailability "
@@ -506,12 +525,18 @@ def format_fallback_output_action(
     try:
         finalizer_model = get_finalizer_model(model, config)
         formatted_output = query_llm_for_model(
-            prompt, finalizer_model, output_format, api_key, verbose=verbose
+            prompt,
+            finalizer_model,
+            output_format,
+            api_key,
+            verbose=verbose,
+            conversation_history=conversation_history,
         )
     finally:
         stop_thinking()
     print_retro_status("SUCCESS", "Fallback result structured successfully")
     return ("final_output", formatted_output)
+
 
 def finalize_action(
     state: Dict[str, Any],
@@ -520,6 +545,7 @@ def finalize_action(
     output_format: Optional[Type[BaseModel]],
     verbose: bool = False,
     config: Optional[AgentModelConfig] = None,
+    conversation_history: Optional[List[Dict[str, str]]] = None,
 ) -> Optional[Tuple[str, BaseModel]]:
     """Finalizes the output: structures via schema if provided, else free-form LLM summary."""
     print_retro_status("FINALIZE", "Generating final response...")
@@ -528,7 +554,13 @@ def finalize_action(
         # Use structured formatting
         try:
             formatted_output = format_output_action(
-                state, model, api_key, output_format, verbose=verbose, config=config
+                state,
+                model,
+                api_key,
+                output_format,
+                verbose=verbose,
+                config=config,
+                conversation_history=conversation_history,
             )
             state["final_output"] = formatted_output[1]  # Update state
             print_retro_status("SUCCESS", "Output formatted successfully")
@@ -539,14 +571,25 @@ def finalize_action(
             pass
 
     # Free-form LLM-generated result if no schema or formatting failed
+    conversation_summary = "\n".join(
+        [f"{msg['role']}: {msg['content']}" for msg in conversation_history]
+    ) if conversation_history else "No conversation history available."
     prompt = (
-        f"Goal: {state.get('goal', '')}\nCurrent state: {state}\n"
+        f"Goal: {state.get('goal', '')}\n"
+        f"Current state: {state}\n"
+        f"Conversation History:\n{conversation_summary}\n\n"
         "Generate a final summary or result based on all collected data."
     )
     start_thinking("Generating final result")
     try:
         finalizer_model = get_finalizer_model(model, config)
-        response = query_llm(prompt, finalizer_model, api_key, verbose=verbose)
+        response = query_llm(
+            prompt,
+            finalizer_model,
+            api_key,
+            verbose=verbose,
+            conversation_history=conversation_history,
+        )
         final_result = response.params.get("content") or response.reasoning
         state["final_output"] = final_result
         print_retro_status("SUCCESS", "Free-form result generated")

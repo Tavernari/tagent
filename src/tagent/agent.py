@@ -1013,21 +1013,29 @@ def run_agent(
         elif decision.action == "finalize":
             print_retro_status("FINALIZE", "Finalizing the result...")
             state_machine.transition(action_type)  # To FINALIZING
+            
             if output_format:
                 try:
                     store.dispatch(
                         lambda state: format_output_action(
-                            state, model_selector.get_finalizer_model(), model_selector.get_api_key(), output_format, verbose=verbose, config=model_config
+                            state,
+                            model_selector.get_finalizer_model(),
+                            model_selector.get_api_key(),
+                            output_format,
+                            verbose=verbose,
+                            config=model_config,
+                            conversation_history=store.conversation_history,
                         ),
                         verbose=verbose,
                     )
                     state_machine.current_state = AgentState.COMPLETED
                 except Exception as e:
-                    print_retro_status("ERROR", f"Finalizing failed: {str(e)}")
+                    print_retro_status("ERROR", f"Finalizing with format failed: {str(e)}")
                     if verbose:
-                        print(f"[ERROR] Finalizing failed: {e}")
-                    state_machine.current_state = AgentState.FAILED
+                        print(f"[ERROR] Finalizing with format failed: {e}")
+                    state_machine.current_state = AgentState.FAILED  # Fail if formatting fails
             else:
+                # No output format, so we can consider it completed.
                 state_machine.current_state = AgentState.COMPLETED
         else:
             print_retro_status("ERROR", f"Unknown action: {decision.action}")
@@ -1194,7 +1202,13 @@ def run_agent(
                             print_retro_status("FORMAT_FALLBACK", "Applying output schema to available data...")
                             store.dispatch(
                                 lambda state: format_fallback_output_action(
-                                    state, model_selector.get_finalizer_model(), model_selector.get_api_key(), output_format, verbose=verbose, config=model_config
+                                    state,
+                                    model_selector.get_finalizer_model(),
+                                    model_selector.get_api_key(),
+                                    output_format,
+                                    verbose=verbose,
+                                    config=model_config,
+                                    conversation_history=store.conversation_history,  # Pass history
                                 ),
                                 verbose=verbose,
                             )
