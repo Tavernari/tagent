@@ -2,7 +2,7 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.4.1-green.svg)](https://github.com/yourusername/tagent2)
+[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/yourusername/tagent2)
 
 > **A minimalist, Redux-inspired framework for AI agents that actually makes sense**
 
@@ -48,7 +48,7 @@ print(result.get("raw_data", {}).get("llm_direct_response"))
 
 ## Configuration System
 
-TAgent v0.4.1 introduces a comprehensive configuration system that centralizes all agent settings. You can configure UI style, model settings, execution parameters, and more.
+TAgent v0.5.0 introduces a comprehensive configuration system that centralizes all agent settings. You can configure UI style, model settings, execution parameters, and more.
 
 ### Basic Configuration
 
@@ -301,7 +301,7 @@ Perfect for demonstrations and interactive use:
 
 ```
 ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-▓                 T-AGENT v0.4.1 STARTING                  ▓ 
+▓                 T-AGENT v0.5.0 STARTING                  ▓ 
 ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
 [-] [12:34:56] INIT: Goal: Translate hello world to Chinese
 [#] [12:34:57] PLAN: Generating strategic plan...
@@ -316,7 +316,7 @@ Perfect for demonstrations and interactive use:
 Clean, structured logging for production environments:
 
 ```
-2025-07-14 12:34:56 [INFO ] SYSTEM: Banner: T-AGENT v0.4.1 STARTING
+2025-07-14 12:34:56 [INFO ] SYSTEM: Banner: T-AGENT v0.5.0 STARTING
 2025-07-14 12:34:56 [INFO ] AGENT: INIT: Goal: Translate hello world to Chinese
 2025-07-14 12:34:57 [INFO ] PLANNER: Plan: Generate strategic plan for translation
 2025-07-14 12:34:58 [INFO ] EXECUTE: Using LLM fallback for translation
@@ -461,7 +461,7 @@ Check out the `/examples` folder for real implementations:
 
 Each example shows different patterns and use cases.
 
-## What's New in v0.4.1
+## What's New in v0.5.0
 
 ### Configuration System
 - ✅ Centralized configuration via `TAgentConfig`
@@ -514,6 +514,6 @@ The framework is small (<2000 lines), focused, and each component has a clear re
 
 **Repository:** https://github.com/yourusername/tagent2  
 **License:** MIT  
-**Version:** 0.4.1
+**Version:** 0.5.0
 
 *If you made it this far and found it interesting, leave a star on GitHub. If you didn't like it, open an issue and complain - feedback is always welcome.*
