@@ -153,6 +153,7 @@ Examples:
   python -m tagent "Plan a trip to Rome" --tools ./travel/tagent.tools.py
   python -m tagent "Find the best products" --search-dir ./ecommerce --recursive
   python -m tagent "Generate report" --search-dir . --model openrouter/gpt-4
+  python -m tagent "Simple task" --model openrouter/gpt-4  # Run without tools
         """,
     )
 
@@ -170,7 +171,7 @@ Examples:
         "--search-dir",
         action="append",
         default=[],
-        help="Directories to search for tagent files (can be used multiple times)",
+        help="Directories to search for tagent files (can be used multiple times). If no paths are provided, agent runs without tools.",
     )
     parser.add_argument(
         "--recursive",
@@ -222,10 +223,9 @@ Examples:
     if args.search_dir:
         search_paths.extend(args.search_dir)
 
-    # Default to current directory if no paths specified
+    # Default to no tools if no paths specified
     if not search_paths:
-        search_paths = ["."]
-        print("No paths specified, searching current directory...")
+        print("No paths specified, running with no tools...")
 
     print(f"Search paths: {search_paths}")
     print(f"Recursive search: {args.recursive}")
@@ -233,7 +233,7 @@ Examples:
 
     # Discover tagent files
     print("🔍 Discovering tagent files...")
-    discovered = discover_tagent_files(search_paths, args.recursive)
+    discovered = discover_tagent_files(search_paths, args.recursive) if search_paths else {"tools": [], "output": []}
 
     print(f"Found {len(discovered['tools'])} tool files:")
     for tool_file in discovered["tools"]:

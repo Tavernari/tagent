@@ -40,6 +40,83 @@ print(result.get("raw_data", {}).get("llm_direct_response"))
 # Output: 你好世界
 ```
 
+## CLI Tool Configuration
+
+TAgent provides a CLI for running agents with dynamic tool discovery. The CLI automatically discovers and loads tools from your project structure.
+
+### Basic Usage
+
+```bash
+# Run without tools (uses LLM knowledge only)
+python -m tagent "What is 2+2?" --model gpt-4o-mini
+
+# Run with tools from specific directory
+python -m tagent "Analyze recent articles" --search-dir ./examples/tab_news_analyzer
+
+# Run with specific tool files
+python -m tagent "Plan a trip" --tools ./travel/tagent.tools.py --tools ./weather/tagent.tools.py
+```
+
+### Tool Discovery Options
+
+The CLI supports several ways to configure tool loading:
+
+- **`--tools`** - Specify exact paths to `tagent.tools.py` files
+- **`--search-dir`** - Search directories for tool files (supports multiple directories)
+- **`--recursive`** - Search directories recursively (default: True)
+- **`--no-recursive`** - Disable recursive search
+- **`--output`** - Specify path to `tagent.output.py` for structured outputs
+
+### Default Behavior
+
+**Important**: When no tool configuration is provided, TAgent runs **without tools** and uses LLM knowledge only. This prevents unwanted recursive searches in your entire file system.
+
+```bash
+# These run without tools:
+python -m tagent "Simple question"
+python -m tagent "Calculate something" --model gpt-4o-mini
+
+# These search for tools:
+python -m tagent "Complex task" --search-dir .
+python -m tagent "Use specific tool" --tools ./my_tools/tagent.tools.py
+```
+
+### Tool File Structure
+
+Tools must be in files named `tagent.tools.py` with this signature:
+
+```python
+def my_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+    """
+    Tool description here.
+    
+    Args:
+        state: Current agent state
+        args: Tool arguments from LLM
+        
+    Returns:
+        Tuple of (key, value) for state update
+    """
+    # Your tool logic here
+    return ("result_key", result_value)
+```
+
+### Examples
+
+```bash
+# Run with tools from current directory (recursive search)
+python -m tagent "Analyze data" --search-dir . --recursive
+
+# Run with tools from specific directories only
+python -m tagent "Multi-step task" --search-dir ./tools --search-dir ./integrations
+
+# Run with exact tool files and custom output format
+python -m tagent "Generate report" --tools ./reporting/tagent.tools.py --output ./reporting/tagent.output.py
+
+# Run without any tools (LLM knowledge only)
+python -m tagent "Simple calculation" --model gpt-4o-mini
+```
+
 ## How It Works Under the Hood
 
 ### Deterministic State Machine
@@ -228,7 +305,13 @@ cd tagent2
 # Install in development mode
 pip install -e .
 
-# Run the TabNews example
+# Try without tools (uses LLM knowledge only)
+python -m tagent "What is the capital of France?" --model gpt-4o-mini
+
+# Try with tools from an example
+python -m tagent "Get recent TabNews articles" --search-dir ./examples/tab_news_analyzer
+
+# Run the TabNews example programmatically
 python examples/tab_news_analyzer/tabnews_code_example.py
 ```
 
