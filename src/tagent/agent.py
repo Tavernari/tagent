@@ -1076,6 +1076,26 @@ def run_agent(
                 ),
                 verbose=verbose,
             )
+            
+            # Update state machine AFTER evaluation and handle goal achievement
+            state_machine.transition(ActionType.EVALUATE)
+            
+            # Check if goal was achieved after unknown action evaluation
+            unknown_eval_achieved = store.state.data.get("achieved", False)
+            if unknown_eval_achieved:
+                print_retro_status("SUCCESS", "Goal achieved during unknown action evaluation! Ready to finalize.")
+                # Transition to FINALIZING state to break the loop
+                if state_machine.is_action_allowed(ActionType.FINALIZE, store.state.data):
+                    state_machine.transition(ActionType.FINALIZE)
+                    print_retro_status("AUTO_FINALIZE", "Auto-transitioning to finalize...")
+                else:
+                    # If finalize not allowed, transition to PLANNING to ensure proper flow
+                    state_machine.transition(ActionType.PLAN)
+                    print_retro_status("AUTO_PLAN", "Auto-transitioning to planning...")
+            else:
+                # If goal not achieved, transition back to planning for next steps
+                state_machine.transition(ActionType.PLAN)
+                print_retro_status("AUTO_PLAN", "Auto-transitioning to planning after unknown action evaluation...")
 
     if state_machine.current_state == AgentState.COMPLETED:
         print_retro_banner("MISSION COMPLETE", "★", 60, MessageType.SUCCESS)

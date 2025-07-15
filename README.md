@@ -190,6 +190,182 @@ INITIAL → PLAN → EXECUTE → EVALUATE → (loop until goal achieved)
 
 Each transition is validated, preventing infinite loops and unpredictable behaviors.
 
+## State Machine Architecture (v0.5.0)
+
+TAgent v0.5.0 implements a sophisticated state machine that ensures predictable execution flow and prevents infinite loops. The architecture follows strict transition rules while giving the AI strategic decision points.
+
+### Complete State Flow Diagram
+
+```
+                    🚀 INITIAL
+                        │
+                        │ (automatic)
+                        ▼
+                       PLAN ◄──────────────────────┐
+                        │                          │
+                        │ (automatic)              │
+                        ▼                          │
+                       EXECUTE                     │
+                        │                          │
+                        │ (AI chooses)             │
+                        ├─────────────┐            │
+                        │             │            │
+                        ▼             ▼            │
+                       EXECUTE        SUMMARIZE    │
+                       (loop)         │            │
+                                      │(automatic) │
+                                      ▼            │
+                                   EVALUATE        │
+                                      │            │
+                                      │(automatic) │
+                                      └────────────┘
+```
+
+### State Transition Rules
+
+#### Mandatory Transitions (Automatic)
+These transitions happen automatically without AI choice:
+
+- **INITIAL → PLAN**: Agent must start by creating a plan
+- **PLAN → EXECUTE**: Plans must be executed
+- **SUMMARIZE → EVALUATE**: Summaries trigger evaluation
+- **EVALUATE → PLAN**: Evaluations trigger re-planning
+
+#### AI Decision Points
+The AI can choose between multiple options at these states:
+
+- **EXECUTE**: Can choose to:
+  - Continue with another **EXECUTE** action (tool usage, data processing)
+  - Move to **SUMMARIZE** when ready to conclude
+
+### Execution Flow Examples
+
+#### Simple Task Flow
+```
+INITIAL → PLAN → EXECUTE → SUMMARIZE → EVALUATE → PLAN (goal achieved)
+```
+
+#### Complex Multi-Step Task
+```
+INITIAL → PLAN → EXECUTE → EXECUTE → EXECUTE → SUMMARIZE → EVALUATE → PLAN → EXECUTE → SUMMARIZE → EVALUATE (complete)
+```
+
+#### Failed Execution Recovery
+```
+INITIAL → PLAN → EXECUTE (fails) → EXECUTE (retry) → SUMMARIZE → EVALUATE (needs replanning) → PLAN → EXECUTE → SUMMARIZE → EVALUATE (success)
+```
+
+### State Descriptions
+
+#### 🚀 INITIAL
+- **Purpose**: Entry point for the agent
+- **Behavior**: Automatically transitions to PLAN
+- **Duration**: Instantaneous
+
+#### 📋 PLAN
+- **Purpose**: Create strategic plan based on goal and current state
+- **Behavior**: Automatically transitions to EXECUTE
+- **LLM Task**: Generate actionable steps and identify required tools
+- **Output**: Structured plan with next actions
+
+#### ⚡ EXECUTE
+- **Purpose**: Perform actions, use tools, process data
+- **Behavior**: AI chooses next state (EXECUTE again or SUMMARIZE)
+- **LLM Task**: Execute tools, process information, make progress
+- **Decision Logic**:
+  - Choose **EXECUTE** if more work needed
+  - Choose **SUMMARIZE** if ready to conclude
+
+#### 📊 SUMMARIZE
+- **Purpose**: Consolidate results and prepare evaluation
+- **Behavior**: Automatically transitions to EVALUATE
+- **LLM Task**: Synthesize all work done and results achieved
+- **Output**: Comprehensive summary of progress
+
+#### 🔍 EVALUATE
+- **Purpose**: Assess if goal is achieved and determine next steps
+- **Behavior**: Automatically transitions to PLAN
+- **LLM Task**: Determine if goal is met or what needs to be done next
+- **Decision Logic**:
+  - If goal achieved: Mark as complete
+  - If more work needed: Continue with new planning cycle
+
+### Loop Prevention Mechanisms
+
+The state machine implements several mechanisms to prevent infinite loops:
+
+#### 1. **Max Iterations Control**
+```python
+config = TAgentConfig(max_iterations=10)  # Limits total EXECUTE actions
+```
+
+#### 2. **State Transition Validation**
+- Prevents invalid transitions (e.g., SUMMARIZE → SUMMARIZE)
+- Enforces mandatory paths
+- Validates state consistency
+
+#### 3. **Progress Tracking**
+- Monitors if agent is making meaningful progress
+- Detects repetitive behaviors
+- Triggers intervention when stuck
+
+#### 4. **Strategic Choice Points**
+- AI only has decision power at specific moments
+- Reduces unpredictable behavior
+- Maintains deterministic flow
+
+### Implementation Benefits
+
+#### 🎯 **Predictable Execution**
+- Every agent run follows the same pattern
+- Debugging is straightforward
+- Behavior is reproducible
+
+#### 🚫 **Loop Prevention**
+- Impossible to get stuck in SUMMARIZE loops
+- EVALUATE always returns to productive work
+- Maximum iteration limits prevent runaway execution
+
+#### 🔄 **Self-Correction**
+- Failed executions trigger re-planning
+- Agent can adapt strategy based on results
+- Built-in recovery mechanisms
+
+#### 📊 **Progress Visibility**
+- Clear state indicators show agent progress
+- Easy to understand where agent is in the process
+- Helpful for debugging and monitoring
+
+### Advanced State Management
+
+#### State Persistence
+```python
+# State is maintained throughout execution
+state = {
+    "goal": "Original user goal",
+    "current_state": "EXECUTE",
+    "iteration": 3,
+    "tools_used": ["search", "translate"],
+    "results": {...}
+}
+```
+
+#### State Validation
+```python
+# Each transition is validated
+def validate_transition(current_state: str, next_state: str) -> bool:
+    valid_transitions = {
+        "INITIAL": ["PLAN"],
+        "PLAN": ["EXECUTE"],
+        "EXECUTE": ["EXECUTE", "SUMMARIZE"],
+        "SUMMARIZE": ["EVALUATE"],
+        "EVALUATE": ["PLAN"]
+    }
+    return next_state in valid_transitions.get(current_state, [])
+```
+
+This architecture ensures TAgent remains controllable and predictable while still allowing the AI to make intelligent decisions about execution flow.
+
 ### Structured Outputs Over Function Calling
 No function calling dependency. The LLM returns structured JSON validated with Pydantic:
 
