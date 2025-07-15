@@ -82,6 +82,7 @@ class AgentStateMachine:
             StateTransitionRule(AgentState.PLANNING, ActionType.EXECUTE, AgentState.EXECUTING),
             
             # From EXECUTING state - can PLAN, EXECUTE, SUMMARIZE, or EVALUATE
+            StateTransitionRule(AgentState.EXECUTING, ActionType.PLAN, AgentState.PLANNING),
             StateTransitionRule(AgentState.EXECUTING, ActionType.EXECUTE, AgentState.EXECUTING),
             StateTransitionRule(AgentState.EXECUTING, ActionType.SUMMARIZE, AgentState.SUMMARIZING),
             StateTransitionRule(AgentState.EXECUTING, ActionType.EVALUATE, AgentState.EVALUATING),
@@ -92,7 +93,7 @@ class AgentStateMachine:
             # From EVALUATING state - can go to PLAN, EXECUTE, or FINALIZE
             StateTransitionRule(AgentState.EVALUATING, ActionType.PLAN, AgentState.PLANNING),
             StateTransitionRule(AgentState.EVALUATING, ActionType.EXECUTE, AgentState.EXECUTING),
-            StateTransitionRule(AgentState.EVALUATING, ActionType.FINALIZE, AgentState.FINALIZING),
+            StateTransitionRule(AgentState.EVALUATING, ActionType.FINALIZE, AgentState.FINALIZING, condition="goal_achieved"),
 
             # From FINALIZING state - must go to COMPLETED (mandatory)
             StateTransitionRule(AgentState.FINALIZING, ActionType.NO_ACTION, AgentState.COMPLETED),
@@ -166,6 +167,18 @@ class AgentStateMachine:
             if not goal_achieved:
                 return False
         
+        # Rule 4: Prevent SUMMARIZE -> EVALUATE -> PLAN -> SUMMARIZE loops
+        if action == ActionType.SUMMARIZE:
+            if self.detect_summarize_evaluate_loop():
+                return False
+        
+        # Rule 5: From PLANNING state, enforce EXECUTE before SUMMARIZE
+        if action == ActionType.SUMMARIZE and self.current_state == AgentState.PLANNING:
+            # Check if we just came from EVALUATING state (which would put us in PLANNING)
+            if len(self.state_history) >= 2 and self.state_history[-2] == AgentState.EVALUATING:
+                # Must EXECUTE before SUMMARIZE after failed evaluation
+                return False
+        
         return True
     
     def get_allowed_actions(self, agent_data: Dict = None) -> Set[ActionType]:
@@ -215,6 +228,9 @@ class AgentStateMachine:
         Returns:
             A valid action to force instead
         """
+        # For future use - we may want to use rejected_action for better decision making
+        _ = rejected_action  # Mark as used to avoid linting warnings
+        
         # Get any allowed action based on current state
         allowed = self.get_allowed_actions(agent_data)
         
@@ -231,6 +247,35 @@ class AgentStateMachine:
         self.last_action = None
         self.action_history = []
         self.state_history = [AgentState.INITIAL]
+    
+    def detect_summarize_evaluate_loop(self, lookback_steps: int = 6) -> bool:
+        """
+        Detect if agent is stuck in SUMMARIZE -> EVALUATE -> PLAN -> SUMMARIZE loop.
+        
+        Args:
+            lookback_steps: Number of recent actions to analyze
+            
+        Returns:
+            True if loop detected, False otherwise
+        """
+        if len(self.action_history) < 4:
+            return False
+            
+        # Look at recent actions
+        recent_actions = self.action_history[-lookback_steps:]
+        
+        # Count occurrences of the problematic pattern
+        summarize_count = recent_actions.count(ActionType.SUMMARIZE)
+        evaluate_count = recent_actions.count(ActionType.EVALUATE)
+        plan_count = recent_actions.count(ActionType.PLAN)
+        
+        # If we have multiple cycles of SUMMARIZE -> EVALUATE -> PLAN without EXECUTE
+        if (summarize_count >= 2 and evaluate_count >= 2 and plan_count >= 2):
+            # Check if there's any EXECUTE action in between
+            execute_count = recent_actions.count(ActionType.EXECUTE)
+            return execute_count == 0
+        
+        return False
     
     def get_state_info(self) -> Dict:
         """Get current state machine information."""
