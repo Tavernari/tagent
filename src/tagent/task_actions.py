@@ -68,14 +68,14 @@ def _resolve_dynamic_args(args: Dict[str, Any], state_machine: TaskBasedStateMac
     return resolved_args
 
 from pydantic import BaseModel, Field
-from .models import MemoryItem, TokenStats
+from .models import MemoryItem, TokenStats, TokenUsage
 from .memory_manager import EnhancedContextManager
 from .state_machine import TaskBasedStateMachine, AgentPhase
 from .llm_interface import query_llm_for_model
 from .prompt_builder import PromptBuilder
 from .tool_rag import ToolRAG
 from .tool_executor import ToolExecutor
-from .ui import print_feedback_dimmed
+from .ui import print_feedback_dimmed, start_thinking, stop_thinking
 
 
 class TaskDefinition(BaseModel):
@@ -102,6 +102,7 @@ class TaskBasedExecuteResponse(BaseModel):
     reasoning: str = Field(description="Reasoning behind the execution")
     memories: List[MemoryItem] = Field(default_factory=list, description="Memories from execution")
     failure_reason: Optional[str] = Field(default=None, description="Reason for failure if unsuccessful")
+    token_usage: Optional[TokenUsage] = Field(default=None, description="Token usage for this execution")
 
 
 class TaskBasedEvaluateResponse(BaseModel):
@@ -149,6 +150,7 @@ def task_based_plan_action(
     
     try:
         # Query LLM
+        start_thinking("Planning strategy...")
         response = query_llm_for_model(
             prompt=prompt,
             model=model,
@@ -156,12 +158,13 @@ def task_based_plan_action(
             api_key=api_key,
             verbose=verbose
         )
+        stop_thinking()
         
         # Capture token usage and log it dimmed
         if hasattr(query_llm_for_model, '_last_token_usage') and query_llm_for_model._last_token_usage:
             if token_stats:
                 token_stats.add_usage(query_llm_for_model._last_token_usage)
-                print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary())
+                print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary(model))
         
         # Add tasks to state machine
         tasks_data = []
@@ -252,15 +255,38 @@ def task_based_execute_action(
     # Execute the specified tool or the llm_task
     try:
         result = None
+        token_usage = None
         if tool_name == "llm_task":
             # Execute the task using the LLM directly
             prompt = resolved_args.get("prompt", current_task.description)
             import litellm
+            from .models import TokenUsage
             messages = [
                 {"role": "system", "content": "You are a helpful assistant. Complete the user's request directly and concisely."},
                 {"role": "user", "content": prompt}
             ]
+            start_thinking(f"Executing LLM task: {current_task.description[:30]}...")
             response = litellm.completion(model=model, messages=messages, api_key=api_key, temperature=0.3)
+            stop_thinking()
+            
+            # Capture token usage for llm_task
+            if hasattr(response, 'usage') and response.usage:
+                try:
+                    cost = litellm.completion_cost(completion_response=response)
+                    cost_value = float(cost) if cost is not None else 0.0
+                except Exception:
+                    cost_value = 0.0
+                
+                token_usage = TokenUsage(
+                    input_tokens=getattr(response.usage, 'prompt_tokens', 0),
+                    output_tokens=getattr(response.usage, 'completion_tokens', 0),
+                    total_tokens=getattr(response.usage, 'total_tokens', 0),
+                    model=model,
+                    cost=cost_value
+                )
+                if token_stats:
+                    token_stats.add_usage(token_usage)
+
             llm_result = response.choices[0].message.content.strip()
             result = (f"{current_task.id}_output", {"response": llm_result})
         else:
@@ -279,11 +305,11 @@ def task_based_execute_action(
             success_memory = MemoryItem(content=f"Successfully executed {current_task.description}", type="execution_success")
             context_manager.store_memories([success_memory], "task_execution")
             context_manager.store_execution_result(state_machine.state, "execute", result, True)
-            return TaskBasedExecuteResponse(success=True, result=result, reasoning=f"Successfully executed {current_task.description}", memories=[success_memory])
+            return TaskBasedExecuteResponse(success=True, result=result, reasoning=f"Successfully executed {current_task.description}", memories=[success_memory], token_usage=token_usage)
         else:
             # Handle tools that return None (fire-and-forget)
             state_machine.complete_current_task(None)
-            return TaskBasedExecuteResponse(success=True, result=None, reasoning=f"Successfully executed fire-and-forget tool for task: {current_task.description}")
+            return TaskBasedExecuteResponse(success=True, result=None, reasoning=f"Successfully executed fire-and-forget tool for task: {current_task.description}", token_usage=token_usage)
 
     except Exception as e:
         # Handle any failure during execution
@@ -328,6 +354,7 @@ def task_based_evaluate_action(
     
     try:
         # Query LLM
+        start_thinking("Evaluating goal achievement...")
         response = query_llm_for_model(
             prompt=prompt,
             model=model,
@@ -335,12 +362,13 @@ def task_based_evaluate_action(
             api_key=api_key,
             verbose=verbose
         )
+        stop_thinking()
         
         # Capture token usage and log it dimmed
         if hasattr(query_llm_for_model, '_last_token_usage') and query_llm_for_model._last_token_usage:
             if token_stats:
                 token_stats.add_usage(query_llm_for_model._last_token_usage)
-                print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary())
+                print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary(model))
         
         # Update state machine based on evaluation
         if response.goal_achieved:
@@ -407,6 +435,7 @@ def task_based_finalize_action(
     
     try:
         # Query LLM
+        start_thinking("Creating final output...")
         if output_format:
             response = query_llm_for_model(
                 prompt=prompt,
@@ -431,12 +460,13 @@ def task_based_finalize_action(
                 api_key=api_key,
                 verbose=verbose
             )
+        stop_thinking()
         
         # Capture token usage and log it dimmed
         if hasattr(query_llm_for_model, '_last_token_usage') and query_llm_for_model._last_token_usage:
             if token_stats:
                 token_stats.add_usage(query_llm_for_model._last_token_usage)
-                print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary())
+                print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary(model))
         
         # Store finalization memory
         finalization_memory = MemoryItem(

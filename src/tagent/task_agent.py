@@ -18,6 +18,8 @@ from .ui import (
     print_retro_banner,
     print_retro_status,
     print_retro_step,
+    start_thinking,
+    stop_thinking,
     MessageType
 )
 from .version import __version__
@@ -127,7 +129,7 @@ def run_task_based_agent(
     token_stats = TokenStats()  # Initialize token usage tracking
     
     # Initialize UI
-    print_retro_banner(f"TASK-BASED T-AGENT v{__version__} STARTING", "▓", 60, MessageType.PRIMARY)
+    print_retro_banner(f"TASK-BASED T-AGENT v{__version__} STARTING", "─", 60, MessageType.PRIMARY)
     print_retro_status("INIT", f"Goal: {goal[:50]}...")
     print_retro_status("CONFIG", f"Model: {model} | Max Iterations: {max_iterations}")
     print_retro_status("CONFIG", f"Max Planning Cycles: {max_planning_cycles}")
@@ -177,10 +179,10 @@ def run_task_based_agent(
     goal_achieved = final_phase == AgentPhase.COMPLETED
     
     if goal_achieved:
-        print_retro_banner("MISSION COMPLETE", "★", 60, MessageType.SUCCESS)
+        print_retro_banner("MISSION COMPLETE", "─", 60, MessageType.SUCCESS)
         print_retro_status("SUCCESS", "Goal achieved successfully!")
     else:
-        print_retro_banner("MISSION ENDED", "!", 60, MessageType.WARNING)
+        print_retro_banner("MISSION ENDED", "─", 60, MessageType.WARNING)
         print_retro_status("INFO", f"Stopped at phase: {final_phase.value}")
     
     # Get final output
