@@ -5,14 +5,13 @@ This module extends the existing TaskBasedStateMachine to support pipeline execu
 with memory persistence, shared context management, and step progress tracking.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 import uuid
 
-from ..state_machine import TaskBasedStateMachine, AgentPhase, Task, TaskStatus
-from ..models import EnhancedAgentState
+from ..state_machine import TaskBasedStateMachine
 from .models import Pipeline, PipelineStep, PipelineResult, StepStatus, PipelineStepContext
 from .scheduler import PipelineScheduler
 
