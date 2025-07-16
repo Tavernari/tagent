@@ -340,6 +340,12 @@ class PipelineStateMachine(TaskBasedStateMachine):
             step.mark_failed(error_message)
             self.scheduler.update_step_status(step.name, StepStatus.FAILED)
             return False
+
+    def skip_step_execution(self, step: PipelineStep):
+        """Mark a step as skipped."""
+        step.status = StepStatus.SKIPPED
+        self.scheduler.update_step_status(step.name, StepStatus.SKIPPED)
+        self.pipeline_memory._update_execution_history(step.name, "skipped", {})
     
     def get_execution_progress(self) -> PipelineExecutionProgress:
         """Get current execution progress."""

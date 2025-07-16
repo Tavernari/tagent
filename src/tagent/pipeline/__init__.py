@@ -40,6 +40,21 @@ from .communication import (
     PipelineCommunicator, PipelineMessage, PipelineEvent, PipelineInfo,
     EventSubscriber, SharedMemorySpace, MessageType, EventType, MessagePriority
 )
+from .conditions import (
+    ConditionEvaluator,
+    ConditionDSL,
+    AnyCondition,
+    ValueReference,
+    EqualsCondition,
+    NotEqualsCondition,
+    ContainsCondition,
+    GreaterThanCondition,
+    LessThanCondition,
+    ExistsCondition,
+    NotExistsCondition,
+    AndCondition,
+    OrCondition,
+)
 
 __all__ = [
     # Models
@@ -97,4 +112,19 @@ __all__ = [
     "MessageType",
     "EventType", 
     "MessagePriority"
+
+    # Conditions
+    "ConditionEvaluator",
+    "ConditionDSL",
+    "AnyCondition",
+    "ValueReference",
+    "EqualsCondition",
+    "NotEqualsCondition",
+    "ContainsCondition",
+    "GreaterThanCondition",
+    "LessThanCondition",
+    "ExistsCondition",
+    "NotExistsCondition",
+    "AndCondition",
+    "OrCondition",
 ]

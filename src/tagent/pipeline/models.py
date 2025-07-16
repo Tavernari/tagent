@@ -13,6 +13,7 @@ import uuid
 from pydantic import BaseModel, Field
 
 from ..models import TokenUsage
+from .conditions import AnyCondition
 
 
 class ExecutionMode(Enum):
@@ -57,6 +58,8 @@ class PipelineStep:
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     execution_id: Optional[str] = None
+    condition: Optional[AnyCondition] = None
+    condition_mode: str = "pre"  # "pre" or "post"
     
     def __post_init__(self):
         """Validate step configuration."""

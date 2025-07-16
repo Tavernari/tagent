@@ -23,6 +23,7 @@ from .models import (
 from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
 from .scheduler import PipelineScheduler
 from .persistence import PipelineMemoryManager, PersistenceConfig, StorageBackendType
+from .conditions import ConditionEvaluator
 
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ class PipelineExecutor:
         
         self.state_machine = PipelineStateMachine(pipeline, self.memory_manager)
         self.scheduler = PipelineScheduler(pipeline)
+        self.condition_evaluator = ConditionEvaluator()
         
         # Execution control
         self.executor_pool = asyncio.Semaphore(self.executor_config.max_concurrent_steps)
@@ -287,13 +289,46 @@ class PipelineExecutor:
             
             # Handle any exceptions from concurrent execution
             await self._handle_concurrent_step_results(concurrent_steps, results)
+
+    async def _build_condition_context(self) -> Dict[str, Any]:
+        """Build context for condition evaluation."""
+        context = {}
+        for step in self.pipeline.steps:
+            context[step.name] = step
+        context["shared"] = self.pipeline.shared_context
+        # You can add more context from pipeline_memory if needed
+        # For example, raw step results
+        for step_name, mem_entry in self.state_machine.pipeline_memory.step_results.items():
+            if step_name not in context:
+                context[step_name] = {}
+            # Make sure not to overwrite the step object
+            context[step_name].result = mem_entry.data
+
+        return context
+
+    async def _should_execute_step(self, step: PipelineStep) -> bool:
+        """Check if a step should be executed based on its condition."""
+        if step.condition is None:
+            return True
+
+        if step.condition_mode == "pre":
+            context = await self._build_condition_context()
+            return self.condition_evaluator.evaluate(step.condition, context)
+
+        return True  # Post-conditions are not handled yet
     
     async def _execute_single_step(self, step: PipelineStep):
         """Execute individual step with comprehensive error handling."""
         async with self.executor_pool:
             step_id = f"{self.pipeline.name}:{step.name}"
             start_time = datetime.now()
-            
+
+            # Check pre-execution condition
+            if not await self._should_execute_step(step):
+                print_retro_status("SKIPPED", f"Step '{step.name}' skipped due to condition")
+                self.state_machine.skip_step_execution(step)
+                return
+
             print_retro_step(f"Executing step: {step.name}")
             
             try:
