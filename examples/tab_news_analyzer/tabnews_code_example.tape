@@ -61,9 +61,9 @@ Require echo
 
 Set TypingSpeed 75ms
 Set Shell "zsh"
-Set FontSize 12
-Set Width 1200
-Set Height 800
+Set FontSize 16
+Set Width 1980
+Set Height 1080
 Set MarginFill "#000000"
 Set Margin 20
 Set BorderRadius 30
@@ -73,6 +73,6 @@ Set Padding 40
 Set LetterSpacing 0.1
 Set LineHeight 1.5
 
-Type "tagent 'Get 2 article from tabnews, load the url content and summarize them with max 15 words each in JAPANESE.' --model openrouter/google/gemini-2.5-flash-lite-preview-06-17" Sleep 1s Enter
+Type "tagent 'Load articles from tabnews, select just one, then read the post content, summarize, and then translate to chinese. It is not required to load all articles.' --model openrouter/google/gemini-2.5-flash-lite-preview-06-17" Sleep 1s Enter
 
 Sleep 60s

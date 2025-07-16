@@ -62,8 +62,8 @@ Require echo
 Set TypingSpeed 75ms
 Set Shell "zsh"
 Set FontSize 12
-Set Width 1200
-Set Height 800
+Set Width 960
+Set Height 540
 Set MarginFill "#000000"
 Set Margin 20
 Set BorderRadius 30

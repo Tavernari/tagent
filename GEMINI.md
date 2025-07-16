@@ -3,6 +3,7 @@
 ## Development Guidelines
 
 Activate .venv first of all.
+Always use typed values, avoid generic dict or any.
 
 Always write code and comments in technical English. This ensures:
 - International collaboration compatibility

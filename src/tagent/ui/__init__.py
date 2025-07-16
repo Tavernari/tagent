@@ -7,9 +7,9 @@ supporting both animated (Matrix-style) and institutional (server-focused) UI st
 
 from typing import Optional
 
+from .modern_cli import Colors
 from .factory import UIFactory, UIStyle
 from .interface import UIInterface, MessageType
-from .animated import Colors
 
 
 # Global UI instance

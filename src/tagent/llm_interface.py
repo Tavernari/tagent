@@ -6,16 +6,17 @@ from typing import Dict, Optional, Callable, List, Type
 from pydantic import BaseModel, ValidationError
 import json
 import litellm
+from litellm import completion_cost
 
-from .models import StructuredResponse
+from .models import StructuredResponse, TokenUsage, TokenStats
 from .utils import get_tool_documentation
-from .llm_adapter import query_llm_with_adapter
+from .ui import print_feedback_dimmed
 
 # Enable verbose debug for LLM calls
 litellm.log_raw_request_response = False
 
 
-def query_llm(
+def query_llm_with_adapter(
     prompt: str,
     model: str = "gpt-3.5-turbo",
     api_key: Optional[str] = None,
@@ -25,18 +26,108 @@ def query_llm(
     verbose: bool = False,
 ) -> StructuredResponse:
     """
-    Queries an LLM via adapter pattern and enforces structured output (JSON).
-    Uses adapter for easier testing and mocking.
+    Queries an LLM and enforces a structured output (JSON).
+
+    This function communicates with the specified Large Language Model (LLM),
+    sending a prompt and receiving a response. It ensures the response
+    conforms to the `StructuredResponse` Pydantic model, which includes
+t   he action to be taken, any parameters for that action, and the reasoning
+    behind the decision.
+
+    The function includes retry logic to handle intermittent network issues
+    or temporary API failures. It also supports including conversation history
+    and a list of available tools, which the LLM can use for more context-aware
+    and capable responses.
     """
-    return query_llm_with_adapter(
-        prompt=prompt,
-        model=model,
-        api_key=api_key,
-        max_retries=max_retries,
-        tools=tools,
-        conversation_history=conversation_history,
-        verbose=verbose,
-    )
+    tool_docs = get_tool_documentation(tools) if tools else "No tools available."
+
+    error_feedback = ""
+    for attempt in range(max_retries):
+        system_message = {
+            "role": "system",
+            "content": (
+                f"You are a helpful assistant that responds in JSON format, conforming to the following schema: "
+                f'{StructuredResponse.model_json_schema()}\n'
+                f"Available tools: {tool_docs}"
+            ),
+        }
+
+        user_message = {
+            "role": "user",
+            "content": f"{prompt}\n{error_feedback}",
+        }
+
+        messages = (
+            conversation_history + [user_message]
+            if conversation_history
+            else [user_message]
+        )
+        messages.insert(0, system_message)
+
+        try:
+            # Use LiteLLM to make the API call
+            response = litellm.completion(
+                model=model,
+                messages=messages,
+                temperature=0.0,
+                api_key=api_key,
+            )
+
+            # Extract the JSON string from the response
+            json_str = response.choices[0].message.content.strip()
+            if verbose:
+                print(f"[RESPONSE] Raw LLM output: {json_str}")
+
+            # Validate and parse the JSON string into a StructuredResponse
+            structured_response = StructuredResponse.model_validate_json(json_str)
+            
+            # Add token usage statistics if available
+            if hasattr(response, 'usage') and response.usage:
+                # Calculate cost using LiteLLM's completion_cost function
+                try:
+                    cost = completion_cost(completion_response=response)
+                    cost_value = float(cost) if cost is not None else 0.0
+                    
+                    # Debug cost calculation
+                    if verbose:
+                        print(f"[DEBUG] Cost calculation for {model}: {cost} -> {cost_value}")
+                        if cost_value == 0.0:
+                            print(f"[DEBUG] Zero cost detected - model may be free or pricing unavailable")
+                            
+                except Exception as e:
+                    cost_value = 0.0
+                    if verbose:
+                        print(f"[DEBUG] Cost calculation failed for model '{model}': {e}")
+                        print_feedback_dimmed(
+                            "WARNING",
+                            f"Cost calculation not available for model '{model}'. See https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json for supported models."
+                        )
+                
+                token_usage = TokenUsage(
+                    input_tokens=getattr(response.usage, 'prompt_tokens', 0),
+                    output_tokens=getattr(response.usage, 'completion_tokens', 0),
+                    total_tokens=getattr(response.usage, 'total_tokens', 0),
+                    model=model,
+                    cost=cost_value
+                )
+                stats = TokenStats()
+                stats.add_usage(token_usage)
+                structured_response.stats = stats
+            
+            return structured_response
+
+        except (
+            litellm.exceptions.APIError,
+            ValidationError,
+            json.JSONDecodeError,
+        ) as e:
+            if verbose:
+                print(f"[ERROR] Attempt {attempt + 1}/{max_retries} failed: {e}")
+            error_feedback = f"Previous output was invalid: {str(e)}. Please correct it."
+            if attempt == max_retries - 1:
+                raise ValueError("Failed to get valid structured output after retries")
+
+    raise ValueError("Max retries exceeded")
 
 
 def query_llm_for_model(
@@ -98,6 +189,38 @@ def query_llm_for_model(
             if verbose:
                 print(f"[RESPONSE] Raw LLM output for model query: {json_str}")
 
+            # Store token usage if available for use by calling functions
+            if hasattr(response, 'usage') and response.usage:
+                # Calculate cost using LiteLLM's completion_cost function
+                try:
+                    cost = completion_cost(completion_response=response)
+                    cost_value = float(cost) if cost is not None else 0.0
+                    
+                    # Debug cost calculation
+                    if verbose:
+                        print(f"[DEBUG] Cost calculation for {model}: {cost} -> {cost_value}")
+                        if cost_value == 0.0:
+                            print(f"[DEBUG] Zero cost detected - model may be free or pricing unavailable")
+                            
+                except Exception as e:
+                    cost_value = 0.0
+                    if verbose:
+                        print(f"[DEBUG] Cost calculation failed for model '{model}': {e}")
+                        print_feedback_dimmed(
+                            "WARNING",
+                            f"Cost calculation not available for model '{model}'. See https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json for supported models."
+                        )
+                
+                token_usage = TokenUsage(
+                    input_tokens=getattr(response.usage, 'prompt_tokens', 0),
+                    output_tokens=getattr(response.usage, 'completion_tokens', 0),
+                    total_tokens=getattr(response.usage, 'total_tokens', 0),
+                    model=model,
+                    cost=cost_value
+                )
+                # Store in global variable for access by calling functions
+                query_llm_for_model._last_token_usage = token_usage
+
             return output_model.model_validate_json(json_str)
 
         except (
@@ -115,6 +238,10 @@ def query_llm_for_model(
                 raise ValueError("Failed to get valid structured output after retries")
 
     raise ValueError("Max retries exceeded")
+
+
+# Initialize global variable to store last token usage for query_llm_for_model
+query_llm_for_model._last_token_usage = None
 
 
 def generate_step_title(
