@@ -19,6 +19,7 @@ from enum import Enum
 import logging
 
 from .state import PipelineMemory
+from .models import PersistenceManagerSummary
 
 
 logger = logging.getLogger(__name__)
@@ -629,16 +630,14 @@ class PipelineMemoryManager:
             except Exception as e:
                 logger.error(f"Error in periodic cleanup: {e}")
     
-    def get_manager_summary(self) -> Dict[str, Any]:
+    def get_manager_summary(self) -> PersistenceManagerSummary:
         """Get summary of memory manager state."""
-        return {
-            "config": {
-                "backend_type": self.config.backend_type.value,
-                "base_path": self.config.base_path,
-                "backup_enabled": self.config.backup_enabled,
-                "retention_days": self.config.retention_days,
-                "auto_cleanup": self.config.auto_cleanup
-            },
-            "active_pipelines": list(self.active_pipelines.keys()),
-            "shared_memory_keys": list(self.shared_memory.keys())
-        }
+        return PersistenceManagerSummary(
+            backend_type=self.config.backend_type.value,
+            base_path=self.config.base_path,
+            backup_enabled=self.config.backup_enabled,
+            retention_days=self.config.retention_days,
+            auto_cleanup=self.config.auto_cleanup,
+            active_pipelines=list(self.active_pipelines.keys()),
+            shared_memory_keys=list(self.shared_memory.keys())
+        )

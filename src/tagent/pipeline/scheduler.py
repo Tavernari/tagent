@@ -10,6 +10,7 @@ from collections import defaultdict, deque
 from enum import Enum
 
 from .models import Pipeline, StepStatus
+from pydantic import BaseModel, Field
 
 
 class SchedulingError(Exception):
@@ -32,6 +33,20 @@ class SchedulingStrategy(Enum):
     TOPOLOGICAL = "topological"  # Standard topological sort
     PRIORITY = "priority"         # Priority-based scheduling
     RESOURCE_AWARE = "resource_aware"  # Resource-aware scheduling
+
+
+class SchedulingSummary(BaseModel):
+    """Summary of pipeline scheduling state."""
+    strategy: str = Field(description="Scheduling strategy used")
+    total_steps: int = Field(description="Total number of steps")
+    execution_order: List[str] = Field(description="Execution order of steps")
+    ready_steps: List[str] = Field(description="Steps ready for execution")
+    blocked_steps: List[Tuple[str, List[str]]] = Field(description="Blocked steps and their blocking dependencies")
+    concurrent_groups: List[List[str]] = Field(description="Groups that can run concurrently")
+    status_counts: Dict[str, int] = Field(description="Count of steps by status")
+    has_deadlock: bool = Field(description="Whether there's a deadlock")
+    dependency_graph: Dict[str, List[str]] = Field(description="Forward dependency graph")
+    reverse_dependency_graph: Dict[str, List[str]] = Field(description="Reverse dependency graph")
 
 
 class PipelineScheduler:
@@ -361,7 +376,7 @@ class PipelineScheduler:
         
         return len(pending_steps) > 0 and len(ready_steps) == 0
     
-    def get_scheduling_summary(self) -> Dict[str, any]:
+    def get_scheduling_summary(self) -> SchedulingSummary:
         """Get comprehensive scheduling summary."""
         ready_steps = self.get_ready_steps()
         blocked_steps = self.get_blocked_steps()
@@ -373,15 +388,15 @@ class PipelineScheduler:
                 1 for s in self.step_status.values() if s == status
             )
         
-        return {
-            "strategy": self.strategy.value,
-            "total_steps": len(self.pipeline.steps),
-            "execution_order": self.execution_order,
-            "ready_steps": ready_steps,
-            "blocked_steps": blocked_steps,
-            "concurrent_groups": concurrent_groups,
-            "status_counts": status_counts,
-            "has_deadlock": self.has_deadlock(),
-            "dependency_graph": self.dependency_graph,
-            "reverse_dependency_graph": dict(self.reverse_dependency_graph)
-        }
+        return SchedulingSummary(
+            strategy=self.strategy.value,
+            total_steps=len(self.pipeline.steps),
+            execution_order=self.execution_order,
+            ready_steps=ready_steps,
+            blocked_steps=blocked_steps,
+            concurrent_groups=concurrent_groups,
+            status_counts=status_counts,
+            has_deadlock=self.has_deadlock(),
+            dependency_graph=self.dependency_graph,
+            reverse_dependency_graph=dict(self.reverse_dependency_graph)
+        )

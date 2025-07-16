@@ -126,9 +126,14 @@ class Pipeline:
         self.description = description
         self.steps: List[PipelineStep] = []
         self.global_constraints: List[str] = []
-        self.shared_context: Dict[str, Any] = {}
+        self.shared_context = SharedPipelineContext(
+            pipeline_id=str(uuid.uuid4()),
+            pipeline_name=name,
+            global_constraints=[],
+            execution_phase="init"
+        )
         self.created_at = datetime.now()
-        self.pipeline_id = str(uuid.uuid4())
+        self.pipeline_id = self.shared_context.pipeline_id
         
     def step(self, name: str, goal: str, **kwargs) -> 'Pipeline':
         """Add step with fluent interface."""
@@ -139,11 +144,32 @@ class Pipeline:
     def add_constraint(self, constraint: str) -> 'Pipeline':
         """Add global constraint with fluent interface."""
         self.global_constraints.append(constraint)
+        self.shared_context.global_constraints.append(constraint)
         return self
     
-    def set_shared_context(self, key: str, value: Any) -> 'Pipeline':
-        """Set shared context with fluent interface."""
-        self.shared_context[key] = value
+    def set_shared_variable(self, key: str, value: str) -> 'Pipeline':
+        """Set shared string variable with fluent interface."""
+        self.shared_context.shared_variables[key] = value
+        return self
+    
+    def set_shared_number(self, key: str, value: float) -> 'Pipeline':
+        """Set shared numeric variable with fluent interface."""
+        self.shared_context.shared_numbers[key] = value
+        return self
+    
+    def set_shared_flag(self, key: str, value: bool) -> 'Pipeline':
+        """Set shared boolean flag with fluent interface."""
+        self.shared_context.shared_flags[key] = value
+        return self
+    
+    def set_shared_list(self, key: str, value: List[str]) -> 'Pipeline':
+        """Set shared list variable with fluent interface."""
+        self.shared_context.shared_lists[key] = value
+        return self
+    
+    def set_execution_phase(self, phase: str) -> 'Pipeline':
+        """Set execution phase with fluent interface."""
+        self.shared_context.execution_phase = phase
         return self
     
     def get_step_by_name(self, name: str) -> Optional[PipelineStep]:
@@ -207,22 +233,27 @@ class Pipeline:
                 dependents.append(step.name)
         return dependents
     
-    def get_pipeline_summary(self) -> Dict[str, Any]:
+    def get_pipeline_summary(self) -> PipelineSummary:
         """Get summary of pipeline state."""
         status_counts = {}
         for status in StepStatus:
             status_counts[status.value] = len(self.get_steps_by_status(status))
         
-        return {
-            "pipeline_id": self.pipeline_id,
-            "name": self.name,
-            "description": self.description,
-            "total_steps": len(self.steps),
-            "status_counts": status_counts,
-            "created_at": self.created_at.isoformat(),
-            "global_constraints": self.global_constraints,
-            "shared_context_keys": list(self.shared_context.keys())
-        }
+        return PipelineSummary(
+            pipeline_id=self.pipeline_id,
+            name=self.name,
+            description=self.description,
+            total_steps=len(self.steps),
+            status_counts=status_counts,
+            created_at=self.created_at.isoformat(),
+            global_constraints=self.global_constraints,
+            shared_context_keys=(
+                list(self.shared_context.shared_variables.keys()) +
+                list(self.shared_context.shared_numbers.keys()) +
+                list(self.shared_context.shared_flags.keys()) +
+                list(self.shared_context.shared_lists.keys())
+            )
+        )
 
 
 @dataclass
@@ -310,27 +341,27 @@ class PipelineResult:
             return 0.0
         return (self.steps_completed / self.total_steps) * 100
     
-    def get_execution_summary(self) -> Dict[str, Any]:
+    def get_execution_summary(self) -> PipelineExecutionSummary:
         """Get comprehensive execution summary."""
-        return {
-            "pipeline_name": self.pipeline_name,
-            "pipeline_id": self.pipeline_id,
-            "success": self.success,
-            "execution_time": self.execution_time,
-            "start_time": self.start_time.isoformat(),
-            "end_time": self.end_time.isoformat(),
-            "total_cost": self.total_cost,
-            "steps_completed": self.steps_completed,
-            "steps_failed": self.steps_failed,
-            "steps_skipped": self.steps_skipped,
-            "total_steps": self.total_steps,
-            "success_rate": self.get_success_rate(),
-            "retry_count": self.retry_count,
-            "failed_steps": self.failed_steps,
-            "learned_facts_count": len(self.learned_facts),
-            "saved_memories_count": len(self.saved_memories),
-            "step_outputs_count": len(self.step_outputs)
-        }
+        return PipelineExecutionSummary(
+            pipeline_name=self.pipeline_name,
+            pipeline_id=self.pipeline_id,
+            success=self.success,
+            execution_time=self.execution_time,
+            start_time=self.start_time.isoformat(),
+            end_time=self.end_time.isoformat(),
+            total_cost=self.total_cost,
+            steps_completed=self.steps_completed,
+            steps_failed=self.steps_failed,
+            steps_skipped=self.steps_skipped,
+            total_steps=self.total_steps,
+            success_rate=self.get_success_rate(),
+            retry_count=self.retry_count,
+            failed_steps=self.failed_steps,
+            learned_facts_count=len(self.learned_facts),
+            saved_memories_count=len(self.saved_memories),
+            step_outputs_count=len(self.step_outputs)
+        )
 
 
 # Default output formats for pipeline steps
@@ -342,14 +373,126 @@ class DefaultStepOutput(BaseModel):
     success: bool = Field(default=True, description="Whether the step succeeded")
 
 
+# Typed models for better type safety
+
+class ExecutionMetadata(BaseModel):
+    """Metadata for step execution."""
+    current_phase: str = Field(description="Current pipeline phase")
+    retry_count: int = Field(default=0, description="Current retry count")
+    execution_time: str = Field(description="Execution timestamp")
+    timeout: Optional[int] = Field(default=None, description="Step timeout in seconds")
+    tools_filter: Optional[List[str]] = Field(default=None, description="Filtered tools for this step")
+
+
+class StepExecutionSummary(BaseModel):
+    """Summary of step execution."""
+    step_name: str = Field(description="Name of the step")
+    status: str = Field(description="Execution status")
+    execution_time: Optional[float] = Field(default=None, description="Execution duration in seconds")
+    retry_count: int = Field(default=0, description="Number of retries")
+    error_message: Optional[str] = Field(default=None, description="Error message if failed")
+    result_available: bool = Field(default=False, description="Whether result is available")
+
+
+class PipelineExecutionProgress(BaseModel):
+    """Progress tracking for pipeline execution."""
+    total_steps: int = Field(description="Total number of steps")
+    completed_steps: int = Field(description="Number of completed steps")
+    failed_steps: int = Field(description="Number of failed steps")
+    running_steps: int = Field(description="Number of running steps")
+    pending_steps: int = Field(description="Number of pending steps")
+    progress_percentage: float = Field(description="Progress as percentage")
+    current_phase: str = Field(description="Current pipeline phase")
+    ready_steps: List[str] = Field(default_factory=list, description="Steps ready for execution")
+    current_step: Optional[str] = Field(default=None, description="Currently executing step")
+
+
+class PipelineMemoryState(BaseModel):
+    """Complete memory state for a pipeline."""
+    pipeline_id: str = Field(description="Unique pipeline identifier")
+    step_results_count: int = Field(description="Number of step results stored")
+    shared_data_keys: List[str] = Field(default_factory=list, description="Keys in shared data")
+    execution_history_count: int = Field(description="Number of execution history events")
+    current_step: Optional[str] = Field(default=None, description="Currently executing step")
+    created_at: str = Field(description="Creation timestamp")
+    updated_at: str = Field(description="Last update timestamp")
+    completed_steps: List[str] = Field(default_factory=list, description="List of completed steps")
+
+
+class PipelineSummary(BaseModel):
+    """Summary of pipeline state."""
+    pipeline_id: str = Field(description="Unique pipeline identifier")
+    name: str = Field(description="Pipeline name")
+    description: str = Field(description="Pipeline description")
+    total_steps: int = Field(description="Total number of steps")
+    status_counts: Dict[str, int] = Field(default_factory=dict, description="Count of steps by status")
+    created_at: str = Field(description="Creation timestamp")
+    global_constraints: List[str] = Field(default_factory=list, description="Global constraints")
+    shared_context_keys: List[str] = Field(default_factory=list, description="Keys in shared context")
+
+
+class StepContext(BaseModel):
+    """Context for step execution."""
+    step_name: str = Field(description="Name of the step")
+    pipeline_id: str = Field(description="Pipeline identifier")
+    shared_data_keys: List[str] = Field(default_factory=list, description="Available shared data keys")
+    execution_history_count: int = Field(description="Number of execution history events")
+    current_step: Optional[str] = Field(default=None, description="Currently executing step")
+    timestamp: str = Field(description="Context creation timestamp")
+
+
+class SharedPipelineContext(BaseModel):
+    """Shared context data for pipeline execution."""
+    pipeline_id: str = Field(description="Pipeline identifier")
+    pipeline_name: str = Field(description="Pipeline name")
+    global_constraints: List[str] = Field(default_factory=list, description="Global constraints")
+    execution_phase: str = Field(description="Current execution phase")
+    shared_variables: Dict[str, str] = Field(default_factory=dict, description="Shared string variables")
+    shared_numbers: Dict[str, float] = Field(default_factory=dict, description="Shared numeric variables")
+    shared_flags: Dict[str, bool] = Field(default_factory=dict, description="Shared boolean flags")
+    shared_lists: Dict[str, List[str]] = Field(default_factory=dict, description="Shared list variables")
+
+
 class PipelineStepContext(BaseModel):
     """Context passed to pipeline steps during execution."""
     step_name: str = Field(description="Name of the current step")
     pipeline_name: str = Field(description="Name of the pipeline")
     pipeline_id: str = Field(description="Unique pipeline identifier")
     step_dependencies: List[str] = Field(default_factory=list, description="Names of dependency steps")
-    dependency_results: Dict[str, Any] = Field(default_factory=dict, description="Results from dependency steps")
-    shared_context: Dict[str, Any] = Field(default_factory=dict, description="Shared pipeline context")
-    execution_metadata: Dict[str, Any] = Field(default_factory=dict, description="Execution metadata")
+    dependency_results: Dict[str, BaseModel] = Field(default_factory=dict, description="Results from dependency steps")
+    shared_context: SharedPipelineContext = Field(description="Shared pipeline context")
+    execution_metadata: ExecutionMetadata = Field(description="Execution metadata")
     retry_count: int = Field(default=0, description="Current retry count for this step")
     max_retries: int = Field(default=3, description="Maximum retries allowed")
+
+
+class PipelineExecutionSummary(BaseModel):
+    """Comprehensive execution summary."""
+    pipeline_name: str = Field(description="Pipeline name")
+    pipeline_id: str = Field(description="Pipeline identifier")
+    success: bool = Field(description="Overall success status")
+    execution_time: float = Field(description="Total execution time")
+    start_time: str = Field(description="Start timestamp")
+    end_time: str = Field(description="End timestamp")
+    total_cost: float = Field(description="Total execution cost")
+    steps_completed: int = Field(description="Number of completed steps")
+    steps_failed: int = Field(description="Number of failed steps")
+    steps_skipped: int = Field(description="Number of skipped steps")
+    total_steps: int = Field(description="Total number of steps")
+    success_rate: float = Field(description="Success rate percentage")
+    retry_count: int = Field(description="Total retry count")
+    failed_steps: List[str] = Field(default_factory=list, description="List of failed steps")
+    learned_facts_count: int = Field(description="Number of learned facts")
+    saved_memories_count: int = Field(description="Number of saved memories")
+    step_outputs_count: int = Field(description="Number of step outputs")
+
+
+class PersistenceManagerSummary(BaseModel):
+    """Summary of persistence manager state."""
+    backend_type: str = Field(description="Type of storage backend")
+    base_path: str = Field(description="Base storage path")
+    backup_enabled: bool = Field(description="Whether backups are enabled")
+    retention_days: int = Field(description="Data retention period in days")
+    auto_cleanup: bool = Field(description="Whether auto cleanup is enabled")
+    active_pipelines: List[str] = Field(default_factory=list, description="List of active pipeline IDs")
+    shared_memory_keys: List[str] = Field(default_factory=list, description="Keys in shared memory")

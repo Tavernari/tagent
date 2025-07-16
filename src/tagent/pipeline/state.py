@@ -12,7 +12,11 @@ from enum import Enum
 import uuid
 
 from ..state_machine import TaskBasedStateMachine
-from .models import Pipeline, PipelineStep, PipelineResult, StepStatus, PipelineStepContext
+from .models import (
+    Pipeline, PipelineStep, PipelineResult, StepStatus, PipelineStepContext,
+    StepContext, PipelineMemoryState, PipelineExecutionProgress,
+    ExecutionMetadata, SharedPipelineContext
+)
 from .scheduler import PipelineScheduler
 
 
@@ -52,7 +56,7 @@ class PipelineMemory:
     def __init__(self, pipeline_id: str):
         self.pipeline_id = pipeline_id
         self.step_results: Dict[str, StepMemoryEntry] = {}
-        self.shared_data: Dict[str, Any] = {}
+        self.shared_data: Dict[str, Any] = {}  # This will be managed through SharedPipelineContext
         self.execution_history: List[Dict[str, Any]] = []
         self.current_step: Optional[str] = None
         self.created_at = datetime.now()
@@ -83,16 +87,16 @@ class PipelineMemory:
         """Check if step has completed with result."""
         return step_name in self.step_results
     
-    def get_step_context(self, step_name: str) -> Dict[str, Any]:
+    def get_step_context(self, step_name: str) -> StepContext:
         """Get execution context for a step."""
-        return {
-            "step_name": step_name,
-            "pipeline_id": self.pipeline_id,
-            "shared_data": self.shared_data.copy(),
-            "execution_history": self.execution_history.copy(),
-            "current_step": self.current_step,
-            "timestamp": datetime.now()
-        }
+        return StepContext(
+            step_name=step_name,
+            pipeline_id=self.pipeline_id,
+            shared_data_keys=list(self.shared_data.keys()),
+            execution_history_count=len(self.execution_history),
+            current_step=self.current_step,
+            timestamp=datetime.now().isoformat()
+        )
     
     def update_shared_data(self, key: str, value: Any):
         """Update shared data accessible by all steps."""
@@ -130,18 +134,18 @@ class PipelineMemory:
         }
         self.execution_history.append(event)
     
-    def get_execution_summary(self) -> Dict[str, Any]:
+    def get_execution_summary(self) -> PipelineMemoryState:
         """Get summary of memory state."""
-        return {
-            "pipeline_id": self.pipeline_id,
-            "step_results_count": len(self.step_results),
-            "shared_data_keys": list(self.shared_data.keys()),
-            "execution_history_count": len(self.execution_history),
-            "current_step": self.current_step,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
-            "completed_steps": list(self.step_results.keys())
-        }
+        return PipelineMemoryState(
+            pipeline_id=self.pipeline_id,
+            step_results_count=len(self.step_results),
+            shared_data_keys=list(self.shared_data.keys()),
+            execution_history_count=len(self.execution_history),
+            current_step=self.current_step,
+            created_at=self.created_at.isoformat(),
+            updated_at=self.updated_at.isoformat(),
+            completed_steps=list(self.step_results.keys())
+        )
     
     def serialize(self) -> Dict[str, Any]:
         """Serialize memory state for persistence."""
@@ -263,18 +267,36 @@ class PipelineStateMachine(TaskBasedStateMachine):
         dependencies = self.scheduler.get_step_dependencies(step.name)
         dependency_results = self.pipeline_memory.get_dependency_results(dependencies)
         
+        # Convert dependency results to BaseModel format
+        typed_dependency_results = {}
+        for dep_name, result in dependency_results.items():
+            if hasattr(result, 'dict') and callable(getattr(result, 'dict')):
+                typed_dependency_results[dep_name] = result
+            else:
+                # Wrap non-BaseModel results in DefaultStepOutput
+                from .models import DefaultStepOutput
+                typed_dependency_results[dep_name] = DefaultStepOutput(
+                    result=result,
+                    summary=f"Result from step {dep_name}",
+                    success=True
+                )
+        
+        execution_metadata = ExecutionMetadata(
+            current_phase=self.current_phase.value,
+            retry_count=self.step_retry_counts.get(step.name, 0),
+            execution_time=datetime.now().isoformat(),
+            timeout=step.timeout,
+            tools_filter=step.tools_filter
+        )
+        
         context = PipelineStepContext(
             step_name=step.name,
             pipeline_name=self.pipeline.name,
             pipeline_id=self.pipeline.pipeline_id,
             step_dependencies=dependencies,
-            dependency_results=dependency_results,
-            shared_context=self.pipeline_memory.shared_data.copy(),
-            execution_metadata={
-                "current_phase": self.current_phase.value,
-                "retry_count": self.step_retry_counts.get(step.name, 0),
-                "execution_time": datetime.now().isoformat()
-            },
+            dependency_results=typed_dependency_results,
+            shared_context=self.pipeline.shared_context,
+            execution_metadata=execution_metadata,
             retry_count=self.step_retry_counts.get(step.name, 0),
             max_retries=step.max_retries
         )
@@ -319,7 +341,7 @@ class PipelineStateMachine(TaskBasedStateMachine):
             self.scheduler.update_step_status(step.name, StepStatus.FAILED)
             return False
     
-    def get_execution_progress(self) -> Dict[str, Any]:
+    def get_execution_progress(self) -> PipelineExecutionProgress:
         """Get current execution progress."""
         total_steps = len(self.pipeline.steps)
         completed_steps = len(self.pipeline.get_steps_by_status(StepStatus.COMPLETED))
@@ -327,17 +349,17 @@ class PipelineStateMachine(TaskBasedStateMachine):
         running_steps = len(self.pipeline.get_steps_by_status(StepStatus.RUNNING))
         pending_steps = len(self.pipeline.get_steps_by_status(StepStatus.PENDING))
         
-        return {
-            "total_steps": total_steps,
-            "completed_steps": completed_steps,
-            "failed_steps": failed_steps,
-            "running_steps": running_steps,
-            "pending_steps": pending_steps,
-            "progress_percentage": (completed_steps / total_steps) * 100 if total_steps > 0 else 0,
-            "current_phase": self.current_phase.value,
-            "ready_steps": [step.name for step in self.get_ready_steps()],
-            "current_step": self.pipeline_memory.current_step
-        }
+        return PipelineExecutionProgress(
+            total_steps=total_steps,
+            completed_steps=completed_steps,
+            failed_steps=failed_steps,
+            running_steps=running_steps,
+            pending_steps=pending_steps,
+            progress_percentage=(completed_steps / total_steps) * 100 if total_steps > 0 else 0,
+            current_phase=self.current_phase.value,
+            ready_steps=[step.name for step in self.get_ready_steps()],
+            current_step=self.pipeline_memory.current_step
+        )
     
     def is_pipeline_complete(self) -> bool:
         """Check if pipeline execution is complete."""

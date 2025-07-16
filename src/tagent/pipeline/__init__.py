@@ -13,9 +13,18 @@ from .models import (
     DependencyType, 
     StepStatus,
     DefaultStepOutput,
-    PipelineStepContext
+    PipelineStepContext,
+    ExecutionMetadata,
+    StepExecutionSummary,
+    PipelineExecutionProgress,
+    PipelineMemoryState,
+    PipelineSummary,
+    StepContext,
+    SharedPipelineContext,
+    PipelineExecutionSummary,
+    PersistenceManagerSummary
 )
-from .scheduler import PipelineScheduler, SchedulingStrategy
+from .scheduler import PipelineScheduler, SchedulingStrategy, SchedulingSummary
 from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
 from .persistence import (
     PipelineMemoryManager, 
@@ -36,10 +45,20 @@ __all__ = [
     "StepStatus",
     "DefaultStepOutput",
     "PipelineStepContext",
+    "ExecutionMetadata",
+    "StepExecutionSummary",
+    "PipelineExecutionProgress",
+    "PipelineMemoryState",
+    "PipelineSummary",
+    "StepContext",
+    "SharedPipelineContext",
+    "PipelineExecutionSummary",
+    "PersistenceManagerSummary",
     
     # Scheduler
     "PipelineScheduler",
     "SchedulingStrategy",
+    "SchedulingSummary",
     
     # State Management
     "PipelineStateMachine",
