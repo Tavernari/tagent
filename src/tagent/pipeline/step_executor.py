@@ -8,7 +8,7 @@ timeout handling, retry logic, and tool filtering.
 
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional, Callable, Union
+from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -18,7 +18,7 @@ from ..task_agent import run_task_based_agent, TaskBasedAgentResult
 from ..config import TAgentConfig
 from .models import (
     PipelineStep, PipelineStepContext, DefaultStepOutput,
-    ExecutionMetadata, StepExecutionSummary
+    StepExecutionSummary
 )
 from .state import PipelineMemory
 
@@ -277,7 +277,7 @@ class ContextInjector:
         
         # Add pipeline-wide memory data (if any additional shared data exists)
         memory_context = pipeline_memory.get_step_context(step.name)
-        step_context['memory_context'] = memory_context.dict()
+        step_context['memory_context'] = memory_context.model_dump()
         
         return step_context
     

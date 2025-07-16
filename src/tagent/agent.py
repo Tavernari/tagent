@@ -3,6 +3,8 @@
 # Requirements: pip install pydantic litellm
 from __future__ import annotations
 from typing import Dict, Any, Optional, Callable, Type, Union, TypeVar
+import asyncio
+import logging
 
 from pydantic import BaseModel, Field
 import os
@@ -19,11 +21,34 @@ from .version import __version__
 from .task_agent import run_task_based_agent, TaskBasedAgentResult, OutputType
 from .model_config import AgentModelConfig, create_config_from_string
 
+# Graceful import handling for pipeline functionality
+try:
+    from .pipeline import (
+        Pipeline, PipelineResult, PipelineExecutor, 
+        PipelineExecutorConfig, PipelineValidationError
+    )
+    PIPELINE_AVAILABLE = True
+except ImportError:
+    PIPELINE_AVAILABLE = False
+    
+    # Create dummy classes for type hints when pipeline is not available
+    class Pipeline:
+        def __init__(self, *args, **kwargs):
+            raise ImportError(
+                "Pipeline support requires additional dependencies. "
+                "Please ensure all pipeline modules are properly installed."
+            )
+    
+    class PipelineResult:
+        pass
+
 # Define a TypeVar for the output model, consistent with task_agent
 AgentOutputType = TypeVar("AgentOutputType", bound=Optional[BaseModel])
 
 # Export main functions for backwards compatibility
-__all__ = ['run_agent', 'TaskBasedAgentResult']
+__all__ = ['run_agent', 'run_pipeline', 'TaskBasedAgentResult', 'PipelineResult', 'Pipeline']
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_model_config(model: Union[str, AgentModelConfig]) -> AgentModelConfig:
@@ -45,7 +70,7 @@ def _parse_model_config(model: Union[str, AgentModelConfig]) -> AgentModelConfig
 
 # === Main Agent Loop ===
 def run_agent(
-    goal: str,
+    goal_or_pipeline: Union[str, Pipeline],
     config: Optional['TAgentConfig'] = None,
     # Legacy parameters for backward compatibility
     model: Union[str, AgentModelConfig] = "gpt-4",
@@ -55,12 +80,14 @@ def run_agent(
     output_format: Optional[Type[AgentOutputType]] = None,
     verbose: bool = False,
     crash_if_over_iterations: bool = False,
-) -> TaskBasedAgentResult[AgentOutputType]:
+    # Pipeline-specific parameters
+    executor_config: Optional['PipelineExecutorConfig'] = None,
+) -> Union[TaskBasedAgentResult[AgentOutputType], PipelineResult]:
     """
-    Runs the main agent loop using task-based approach.
+    Enhanced run_agent supporting both single goals and pipelines.
 
     Args:
-        goal: The main objective for the agent.
+        goal_or_pipeline: Either a goal string or Pipeline object
         config: TAgentConfig object containing all configuration options.
                 If None, will use legacy parameters and environment variables.
         
@@ -74,75 +101,246 @@ def run_agent(
         verbose: If True, shows all debug logs. If False, shows only essential logs.
         crash_if_over_iterations: If True, raises exception when max_iterations
             reached. If False (default), returns results with summarizer fallback.
+        
+        # Pipeline-specific parameters:
+        executor_config: Optional PipelineExecutorConfig for pipeline execution
 
     Returns:
-        TaskBasedAgentResult containing execution results and metadata.
+        TaskBasedAgentResult for single goals or PipelineResult for pipelines
+        
+    Raises:
+        ImportError: If pipeline functionality is not available
+        PipelineValidationError: If pipeline validation fails
     """
-    # Handle configuration: use TAgentConfig if provided, otherwise use legacy parameters
-    if config is None:
-        # Parse model configuration
-        model_config = _parse_model_config(model)
+    # Check if pipeline functionality is available and requested
+    if isinstance(goal_or_pipeline, Pipeline):
+        if not PIPELINE_AVAILABLE:
+            raise ImportError(
+                "Pipeline support requires additional dependencies. "
+                "Please ensure all pipeline modules are properly installed."
+            )
         
-        # Use the task-based agent approach
-        result = run_task_based_agent(
-            goal=goal,
-            tools=tools or {},
-            output_format=output_format,
-            model=model_config.tagent_model,
-            api_key=api_key,  # Let LiteLLM handle environment variables
+        # Execute pipeline
+        return asyncio.run(run_pipeline(
+            pipeline=goal_or_pipeline,
+            config=config,
+            model=model,
+            api_key=api_key,
             max_iterations=max_iterations,
-            verbose=verbose
-        )
+            tools=tools,
+            output_format=output_format,
+            verbose=verbose,
+            crash_if_over_iterations=crash_if_over_iterations,
+            executor_config=executor_config
+        ))
+    else:
+        # Existing single-goal execution
+        goal = goal_or_pipeline
         
-        return result
+        # Handle configuration: use TAgentConfig if provided, otherwise use legacy parameters
+        if config is None:
+            # Parse model configuration
+            model_config = _parse_model_config(model)
+            
+            # Use the task-based agent approach
+            result = run_task_based_agent(
+                goal=goal,
+                tools=tools or {},
+                output_format=output_format,
+                model=model_config.tagent_model,
+                api_key=api_key,  # Let LiteLLM handle environment variables
+                max_iterations=max_iterations,
+                verbose=verbose
+            )
+            
+            return result
+        else:
+            # Import here to avoid circular imports
+            from .config import TAgentConfig
+            
+            # Create override config using TAgentConfig for type safety
+            override_config = TAgentConfig()
+            if model != "gpt-4":  # Only override if not default
+                override_config.model = model
+            if api_key is not None:
+                override_config.api_key = api_key
+            if max_iterations != 20:  # Only override if not default
+                override_config.max_iterations = max_iterations
+            if tools is not None:
+                override_config.tools = tools
+            if output_format is not None:
+                override_config.output_format = output_format
+            if verbose:  # Only override if True
+                override_config.verbose = verbose
+            if crash_if_over_iterations:  # Only override if True
+                override_config.crash_if_over_iterations = crash_if_over_iterations
+            
+            # Merge configurations
+            merged_config = config.merge(override_config)
+            
+            # Extract values from config
+            model_config = merged_config.get_model_config()
+            
+            # Set UI style
+            from .ui import set_ui_style
+            set_ui_style(merged_config.ui_style)
+            
+            # Use the task-based agent approach
+            result = run_task_based_agent(
+                goal=goal,
+                tools=merged_config.tools or {},
+                output_format=merged_config.output_format,
+                model=model_config.tagent_model,
+                api_key=model_config.api_key,
+                max_iterations=merged_config.max_iterations,
+                verbose=merged_config.verbose
+            )
+            
+            return result
+
+
+async def run_pipeline(
+    pipeline: Pipeline,
+    config: Optional['TAgentConfig'] = None,
+    # Legacy parameters for backward compatibility  
+    model: Union[str, AgentModelConfig] = "gpt-4",
+    api_key: Optional[str] = None,
+    max_iterations: int = 20,
+    tools: Optional[Dict[str, Callable]] = None,
+    output_format: Optional[Type[AgentOutputType]] = None,
+    verbose: bool = False,
+    crash_if_over_iterations: bool = False,
+    executor_config: Optional['PipelineExecutorConfig'] = None,
+) -> PipelineResult:
+    """
+    Execute a pipeline with enhanced orchestration.
+
+    Args:
+        pipeline: Pipeline object to execute
+        config: TAgentConfig object containing all configuration options
+        model: Model configuration for pipeline execution
+        api_key: API key for LLM service
+        max_iterations: Maximum iterations per step
+        tools: Dictionary of available tools
+        output_format: Output format for pipeline results
+        verbose: Enable verbose logging
+        crash_if_over_iterations: Crash if iterations exceeded
+        executor_config: Configuration for pipeline executor
+
+    Returns:
+        PipelineResult with execution results and metadata
+        
+    Raises:
+        PipelineValidationError: If pipeline validation fails
+        ImportError: If pipeline dependencies are not available
+    """
+    if not PIPELINE_AVAILABLE:
+        raise ImportError(
+            "Pipeline support requires additional dependencies. "
+            "Please ensure all pipeline modules are properly installed."
+        )
+    
+    # Validate pipeline before execution
+    validation_errors = pipeline.validate()
+    if validation_errors:
+        raise PipelineValidationError(f"Pipeline validation failed: {validation_errors}")
+    
+    # Prepare configuration with type safety
+    if config is None:
+        # Import here to avoid circular imports
+        from .config import TAgentConfig
+        
+        # Create config from legacy parameters
+        config = TAgentConfig(
+            model=model,
+            api_key=api_key,
+            max_iterations=max_iterations,
+            tools=tools,
+            output_format=output_format,
+            verbose=verbose,
+            crash_if_over_iterations=crash_if_over_iterations
+        )
     else:
         # Import here to avoid circular imports
         from .config import TAgentConfig
         
-        # Override config with any explicitly provided legacy parameters
-        override_dict = {}
-        if model != "gpt-4":  # Only override if not default
-            override_dict["model"] = model
+        # Create override config for type safety
+        override_config = TAgentConfig()
+        if model != "gpt-4":
+            override_config.model = model
         if api_key is not None:
-            override_dict["api_key"] = api_key
-        if max_iterations != 20:  # Only override if not default
-            override_dict["max_iterations"] = max_iterations
+            override_config.api_key = api_key
+        if max_iterations != 20:
+            override_config.max_iterations = max_iterations
         if tools is not None:
-            override_dict["tools"] = tools
+            override_config.tools = tools
         if output_format is not None:
-            override_dict["output_format"] = output_format
-        if verbose:  # Only override if True
-            override_dict["verbose"] = verbose
-        if crash_if_over_iterations:  # Only override if True
-            override_dict["crash_if_over_iterations"] = crash_if_over_iterations
+            override_config.output_format = output_format
+        if verbose:
+            override_config.verbose = verbose
+        if crash_if_over_iterations:
+            override_config.crash_if_over_iterations = crash_if_over_iterations
         
-        if override_dict:
-            config = config.merge(TAgentConfig.from_dict(override_dict))
-        
-        # Extract values from config
-        model_config = config.get_model_config()
-        max_iterations = config.max_iterations
-        tools = config.tools
-        output_format = config.output_format
-        verbose = config.verbose
-        
-        # Set UI style
-        from .ui import set_ui_style
-        set_ui_style(config.ui_style)
-        
-        # Use the task-based agent approach
-        result = run_task_based_agent(
-            goal=goal,
-            tools=tools or {},
-            output_format=output_format,
-            model=model_config.tagent_model,
-            api_key=model_config.api_key,
-            max_iterations=max_iterations,
-            verbose=verbose
-        )
-        
+        # Merge configurations
+        config = config.merge(override_config)
+    
+    # Set UI style
+    from .ui import set_ui_style
+    set_ui_style(config.ui_style)
+    
+    # Create executor configuration if not provided
+    if executor_config is None:
+        executor_config = PipelineExecutorConfig()
+    
+    # Create and execute pipeline
+    executor = PipelineExecutor(pipeline, config, executor_config)
+    
+    try:
+        result = await executor.execute()
+        logger.info(f"Pipeline '{pipeline.name}' executed successfully")
         return result
     
+    except Exception as e:
+        logger.error(f"Pipeline '{pipeline.name}' execution failed: {e}")
+        raise
+
+
+def _merge_config_with_kwargs(config: 'TAgentConfig', **kwargs) -> 'TAgentConfig':
+    """
+    Merge configuration with kwargs for backward compatibility using type-safe approach.
+    
+    Args:
+        config: Base TAgentConfig object
+        **kwargs: Additional parameters to merge
+        
+    Returns:
+        Merged TAgentConfig object
+    """
+    # Import here to avoid circular imports
+    from .config import TAgentConfig
+    
+    # Create override config
+    override_config = TAgentConfig()
+    
+    # Map kwargs to config parameters with type safety
+    if 'model' in kwargs:
+        override_config.model = kwargs['model']
+    if 'api_key' in kwargs:
+        override_config.api_key = kwargs['api_key']
+    if 'max_iterations' in kwargs:
+        override_config.max_iterations = kwargs['max_iterations']
+    if 'tools' in kwargs:
+        override_config.tools = kwargs['tools']
+    if 'output_format' in kwargs:
+        override_config.output_format = kwargs['output_format']
+    if 'verbose' in kwargs:
+        override_config.verbose = kwargs['verbose']
+    if 'crash_if_over_iterations' in kwargs:
+        override_config.crash_if_over_iterations = kwargs['crash_if_over_iterations']
+    
+    # Merge configurations
+    return config.merge(override_config)
+
 
 
 # === Example Usage ===

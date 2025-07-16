@@ -34,6 +34,12 @@ from .persistence import (
     SQLiteStorageBackend,
     MemoryStorageBackend
 )
+from .executor import PipelineExecutor, PipelineExecutorConfig, PipelineValidationError
+from .step_executor import StepExecutor, RetryConfig, TimeoutConfig
+from .communication import (
+    PipelineCommunicator, PipelineMessage, PipelineEvent, PipelineInfo,
+    EventSubscriber, SharedMemorySpace, MessageType, EventType, MessagePriority
+)
 
 __all__ = [
     # Models
@@ -71,5 +77,24 @@ __all__ = [
     "StorageBackendType",
     "FileStorageBackend",
     "SQLiteStorageBackend",
-    "MemoryStorageBackend"
+    "MemoryStorageBackend",
+    
+    # Execution
+    "PipelineExecutor",
+    "PipelineExecutorConfig", 
+    "PipelineValidationError",
+    "StepExecutor",
+    "RetryConfig",
+    "TimeoutConfig",
+    
+    # Communication
+    "PipelineCommunicator",
+    "PipelineMessage",
+    "PipelineEvent", 
+    "PipelineInfo",
+    "EventSubscriber",
+    "SharedMemorySpace",
+    "MessageType",
+    "EventType", 
+    "MessagePriority"
 ]
