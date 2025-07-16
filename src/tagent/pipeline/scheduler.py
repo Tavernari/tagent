@@ -5,11 +5,11 @@ This module implements dependency resolution and execution scheduling for pipeli
 It provides topological sorting, circular dependency detection, and step readiness management.
 """
 
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import defaultdict, deque
 from enum import Enum
 
-from .models import Pipeline, PipelineStep, StepStatus
+from .models import Pipeline, StepStatus
 
 
 class SchedulingError(Exception):
