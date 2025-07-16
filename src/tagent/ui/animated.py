@@ -752,6 +752,8 @@ class AnimatedUI(UIInterface):
                 print(f"{color}   # Missing: {line}{Colors.RESET}")
             elif feedback_type == "SUGGESTIONS":
                 print(f"{color}   * {line}{Colors.RESET}")
+            elif feedback_type in ["TOKEN_USAGE", "MODEL_STATS", "TOTAL_STATS"]:
+                print(f"{color} {line}{Colors.RESET}")
             else:
                 print(f"{color}   I {line}{Colors.RESET}")
     

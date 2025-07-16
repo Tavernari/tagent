@@ -224,10 +224,26 @@ def run_task_based_agent(
     # Display final token statistics
     if token_stats.total.total_tokens > 0:
         from .ui import print_feedback_dimmed
+        
+        print_feedback_dimmed("TOKEN_USAGE", "Token Usage Breakdown:")
+        
+        # Sort models by name for consistent output
+        for model_name, usage in sorted(token_stats.by_model.items()):
+            model_cost_str = f"${usage.cost:.6f}" if usage.cost > 0 else "$0.000000"
+            model_summary = (
+                f"  - {model_name}: "
+                f"Input: {usage.input_tokens}, Output: {usage.output_tokens}, "
+                f"Total: {usage.total_tokens} tokens ({model_cost_str})"
+            )
+            print_feedback_dimmed("MODEL_STATS", model_summary)
+            
         cost_str = f"${token_stats.total.cost:.6f}" if token_stats.total.cost > 0 else "$0.000000"
-        total_summary = f"Total: ↗ {token_stats.total.input_tokens} ↙ {token_stats.total.output_tokens} (Σ {token_stats.total.total_tokens} tokens | {cost_str})"
-        model_breakdown = " | ".join([f"{model}: {usage.total_tokens} (${usage.cost:.6f})" for model, usage in token_stats.by_model.items()])
-        print_feedback_dimmed("FINAL STATS", f"{total_summary} | By model: {model_breakdown}")
+        total_summary = (
+            f"Grand Total: "
+            f"Input: {token_stats.total.input_tokens}, Output: {token_stats.total.output_tokens}, "
+            f"Total: {token_stats.total.total_tokens} tokens ({cost_str})"
+        )
+        print_feedback_dimmed("TOTAL_STATS", total_summary)
     
     if verbose:
         print(f"[FINAL] Result: {result}")
@@ -317,8 +333,17 @@ def _execute_task_loop(
             tools=tools,
             model=model,
             api_key=api_key,
-            verbose=verbose
+            verbose=verbose,
+            token_stats=token_stats
         )
+        
+        if response and response.token_usage and token_stats:
+            from .ui import print_feedback_dimmed
+            token_stats.add_usage(response.token_usage)
+            print_feedback_dimmed("TOKENS", token_stats.format_dimmed_summary(model))
+        
+        if verbose:
+            print(f"[DEBUG] Response from execute action: {response}")
         
         if response:
             if response.success:

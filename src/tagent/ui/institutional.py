@@ -148,6 +148,12 @@ class InstitutionalUI(UIInterface):
                 self._log_message("WARN", "VALIDATION", f"Missing: {line}")
             elif feedback_type == "SUGGESTIONS":
                 self._log_message("INFO", "SUGGESTIONS", line)
+            elif feedback_type == "TOKEN_USAGE":
+                self._log_message("INFO", "STATS", line)
+            elif feedback_type == "MODEL_STATS":
+                self._log_message("INFO", "STATS", line)
+            elif feedback_type == "TOTAL_STATS":
+                self._log_message("INFO", "STATS", line)
             else:
                 self._log_message("DEBUG", "FEEDBACK", line)
     
