@@ -1,8 +1,14 @@
 """
 Task-based TAgent - Agent that executes tasks in loops with retry logic.
 """
+from __future__ import annotations
+from typing import Dict, Any, List, Optional, Type, Callable, TypeVar
 
-from typing import Dict, Any, List, Optional, Type, Callable
+try:
+    from typing import Generic
+except ImportError:
+    from typing_extensions import Generic
+
 from pydantic import BaseModel
 import litellm
 
@@ -28,11 +34,14 @@ from .tool_rag import ToolRAG
 from .prompt_builder import PromptBuilder
 from .models import TokenStats
 
+# Define a TypeVar for the output model
+OutputType = TypeVar("OutputType", bound=Optional[BaseModel])
 
-class TaskBasedAgentResult(BaseModel):
+
+class TaskBasedAgentResult(Generic[OutputType], BaseModel):
     """Result from task-based agent execution."""
     
-    final_output: Any = None
+    output: OutputType = None
     goal_achieved: bool = False
     iterations_used: int = 0
     planning_cycles: int = 0
@@ -43,6 +52,9 @@ class TaskBasedAgentResult(BaseModel):
     memory_summary: Dict[str, Any] = {}
     failure_reason: Optional[str] = None
     stats: Optional[TokenStats] = None
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 def _detect_language(text: str, api_key: Optional[str] = None) -> str:
@@ -84,13 +96,13 @@ def _translate_text(text: str, target_language: str, api_key: Optional[str] = No
 def run_task_based_agent(
     goal: str,
     tools: Dict[str, Callable],
-    output_format: Optional[Type[BaseModel]] = None,
+    output_format: Optional[Type[OutputType]] = None,
     model: str = "gpt-4",
     api_key: Optional[str] = None,
     max_iterations: int = 20,
     max_planning_cycles: int = 5,
     verbose: bool = False
-) -> TaskBasedAgentResult:
+) -> TaskBasedAgentResult[OutputType]:
     """
     Run TAgent with task-based execution and retry logic.
     
@@ -210,7 +222,7 @@ def run_task_based_agent(
     task_summary = state_machine.get_task_summary()
     
     result = TaskBasedAgentResult(
-        final_output=final_output,
+        output=final_output,
         goal_achieved=goal_achieved,
         iterations_used=state_machine.current_iteration,
         planning_cycles=state_machine.planning_cycles,

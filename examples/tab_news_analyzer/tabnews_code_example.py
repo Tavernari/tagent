@@ -1,3 +1,4 @@
+from pdb import run
 import requests
 from typing import Dict, Any, Optional, Tuple, List
 from pydantic import BaseModel, Field, HttpUrl
@@ -166,18 +167,19 @@ run_agent_response = run_agent(
     verbose=False
 )
 
-# Access the final output from the TaskBasedAgentResult
-final_output = run_agent_response.final_output
+# Access the output from the TaskBasedAgentResult
+output = run_agent_response.output
 
 print("--- TabNews Article ---\n")
 print(f"Goal achieved: {run_agent_response.goal_achieved}")
 print(f"Tasks completed: {run_agent_response.completed_tasks}")
 print(f"Planning cycles: {run_agent_response.planning_cycles}")
 
-if final_output:
+if output:
     print("\nOriginal Summary:\n")
-    print(final_output.original_summary)
+    print(output.original_summary)
     print("\nTranslated Summary:\n")
-    print(final_output.translated_summary)
+    print(output.translated_summary)
 else:
-    print("❌ No final output generated")
+    print("❌ No output generated")
+

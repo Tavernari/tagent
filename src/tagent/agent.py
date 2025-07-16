@@ -1,8 +1,9 @@
 # TAgent main module - orchestrates the agent execution loop using task-based approach.
 # Integration with LiteLLM for real LLM calls, leveraging JSON Mode.
 # Requirements: pip install pydantic litellm
+from __future__ import annotations
+from typing import Dict, Any, Optional, Callable, Type, Union, TypeVar
 
-from typing import Dict, Any, Optional, Callable, Type, Union
 from pydantic import BaseModel, Field
 import os
 
@@ -15,8 +16,11 @@ except ImportError:
     pass
 
 from .version import __version__
-from .task_agent import run_task_based_agent, TaskBasedAgentResult
+from .task_agent import run_task_based_agent, TaskBasedAgentResult, OutputType
 from .model_config import AgentModelConfig, create_config_from_string
+
+# Define a TypeVar for the output model, consistent with task_agent
+AgentOutputType = TypeVar("AgentOutputType", bound=Optional[BaseModel])
 
 # Export main functions for backwards compatibility
 __all__ = ['run_agent', 'TaskBasedAgentResult']
@@ -48,10 +52,10 @@ def run_agent(
     api_key: Optional[str] = None,
     max_iterations: int = 20,
     tools: Optional[Dict[str, Callable]] = None,
-    output_format: Optional[Type[BaseModel]] = None,
+    output_format: Optional[Type[AgentOutputType]] = None,
     verbose: bool = False,
     crash_if_over_iterations: bool = False,
-) -> TaskBasedAgentResult:
+) -> TaskBasedAgentResult[AgentOutputType]:
     """
     Runs the main agent loop using task-based approach.
 
@@ -182,3 +186,5 @@ if __name__ == "__main__":
         verbose=True
     )
     print("\nFinal Result:", result)
+    if result.output:
+        print(f"Location: {result.output.location}")

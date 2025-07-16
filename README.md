@@ -2,7 +2,7 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](https://github.com/yourusername/tagent2)
+[![Version](https://img.shields.io/badge/version-0.6.1-green.svg)](https://github.com/yourusername/tagent2)
 
 > **A flexible, task-based framework for creating powerful AI agents with minimal code. No course required.**
 
@@ -38,7 +38,8 @@ result = run_agent(
 )
 
 print(f"Goal achieved: {result.goal_achieved}")
-print(f"Final output: {result.final_output.result}")
+print(f"Final output: {result.output.result}")
+# The type of 'result.output' is automatically inferred by static analysis tools!
 # Output: Goal achieved: True
 # Final output: 你好世界
 ```
@@ -70,12 +71,12 @@ result = run_agent(
 )
 
 print(f"Tasks completed: {result.completed_tasks}")
-print(f"Final output: {result.final_output}")
+print(f"Final output: {result.output}")
 ```
 
 ## 🏗️ Task-Based Architecture
 
-TAgent v0.6.0 introduces a revolutionary **task-based approach** that makes AI agent behavior predictable and reliable:
+TAgent v0.6.1 introduces a revolutionary **task-based approach** that makes AI agent behavior predictable and reliable:
 
 ### The Flow
 
@@ -215,7 +216,7 @@ TAgent returns a comprehensive `TaskBasedAgentResult` object:
 
 ```python
 class TaskBasedAgentResult(BaseModel):
-    final_output: Any               # Your structured result
+    output: Any                      # Your structured result, with the correct type hint
     goal_achieved: bool             # Success indicator
     iterations_used: int            # Execution steps taken
     planning_cycles: int            # Planning iterations
@@ -324,8 +325,8 @@ result = run_agent(
     model="gpt-4"
 )
 
-print(f"🎯 RESULT: {result.final_output.result}")
-print(f"📝 SUMMARY: {result.final_output.summary}")
+print(f"🎯 RESULT: {result.output.result}")
+print(f"📝 SUMMARY: {result.output.summary}")
 ```
 
 ## 🚀 Advanced Features
@@ -480,4 +481,4 @@ Built with ❤️ using:
 
 ---
 
-**TAgent v0.6.0** - Making AI agents simple again! 🚀
+**TAgent v0.6.1** - Simplifying AI for your daily life 🚀

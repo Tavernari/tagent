@@ -13,12 +13,12 @@ print(f"Goal achieved: {result.goal_achieved}")
 print(f"Tasks completed: {result.completed_tasks}")
 print(f"Planning cycles: {result.planning_cycles}")
 
-if result.final_output:
-    print(f"\n🎯 MAIN RESULT: {result.final_output.result}")
-    print(f"📝 SUMMARY: {result.final_output.summary}")
-    if result.final_output.achievements:
-        print(f"✅ ACHIEVEMENTS: {', '.join(result.final_output.achievements)}")
-    if result.final_output.challenges:
-        print(f"⚠️  CHALLENGES: {', '.join(result.final_output.challenges)}")
+if result.output:
+    print(f"\n🎯 MAIN RESULT: {result.output.result}")
+    print(f"📝 SUMMARY: {result.output.summary}")
+    if result.output.achievements:
+        print(f"✅ ACHIEVEMENTS: {', '.join(result.output.achievements)}")
+    if result.output.challenges:
+        print(f"⚠️  CHALLENGES: {', '.join(result.output.challenges)}")
 else:
-    print("❌ No final output generated")
+    print("❌ No output generated")
