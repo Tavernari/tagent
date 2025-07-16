@@ -1,142 +1,129 @@
 import requests
-from typing import Dict, Any, Optional, Tuple
-from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, Tuple, List
+from pydantic import BaseModel, Field, HttpUrl
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 
 from tagent import run_agent
 
-# === Tools ===
+# === Tool-Specific Pydantic Models (Input/Output Contracts) ===
+
+# --- Models for extract_tabnews_articles ---
+
+class Article(BaseModel):
+    """Represents a single article from TabNews."""
+    url: HttpUrl
+    title: str
+    publication_date: str
+
+class ExtractTabnewsArticlesOutput(BaseModel):
+    """Output contract for extract_tabnews_articles tool."""
+    articles: List[Article] = []
+    error: Optional[str] = None
+
+# --- Models for load_and_process_url ---
+
+class LoadUrlInput(BaseModel):
+    """Input contract for the load_and_process_url tool."""
+    url: HttpUrl = Field(..., description="The exact URL of the TabNews article to process.")
+
+class LoadUrlOutput(BaseModel):
+    """Output contract for the load_and_process_url tool."""
+    content: Optional[str] = None
+    error: Optional[str] = None
+
+# --- Models for translate ---
+
+class TranslateInput(BaseModel):
+    """Input contract for the translate tool."""
+    text: str = Field(..., description="The text to be translated.")
+    target_language: str = Field(..., description="The target language for the translation (e.g., 'chinese', 'spanish').")
+
+class TranslateOutput(BaseModel):
+    """Output contract for the translate tool."""
+    translation: Optional[str] = None
+    original_text: Optional[str] = None
+    target_language: Optional[str] = None
+    error: Optional[str] = None
 
 
-def extract_tabnews_articles(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+# === Tools (Now with simplified, flexible signatures) ===
+
+def extract_tabnews_articles() -> ExtractTabnewsArticlesOutput:
     """
     Fetches recent news from TabNews, extracts the URLs, 
-    titles, and publication dates, and returns them as a list of dictionaries.
+    titles, and publication dates, and returns them as a structured list.
+    This tool does not require any arguments.
     """
     url = "https://www.tabnews.com.br/recentes/rss"
     
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Raises an error for non-200 status codes
+        response.raise_for_status()
         
         root = ET.fromstring(response.content)
         
-        articles_list = []
-        
-        for item in root.findall('.//item'):
-            link = item.find('link').text
-            title = item.find('title').text
-            pub_date = item.find('pubDate').text
+        articles_list = [
+            Article(
+                url=item.find('link').text,
+                title=item.find('title').text,
+                publication_date=item.find('pubDate').text
+            ) for item in root.findall('.//item')
+        ]
             
-            articles_list.append({
-                "url": link,
-                "title": title,
-                "publication_date": pub_date
-            })
-            
-        return ("articles", articles_list)
+        return ExtractTabnewsArticlesOutput(articles=articles_list)
 
     except requests.exceptions.RequestException as e:
-        return ("articles", f"Failed to fetch news: {e}")
+        return ExtractTabnewsArticlesOutput(error=f"Failed to fetch news: {e}")
 
 def process_html_content(html_content: bytes) -> Optional[str]:
     """
-    Analisa o conteúdo HTML, encontra a tag <main> e o primeiro <div> dentro dela,
-    e retorna o texto limpo.
-
-    Args:
-        html_content: O conteúdo HTML da página em bytes.
-
-    Returns:
-        Uma string com o texto extraído e limpo, ou None se não encontrar.
+    Parses HTML content to find the <main> tag and the first <div> within it,
+    returning the cleaned text.
     """
     if not html_content:
         return None
-
-    # 1. Inicia o BeautifulSoup para analisar o HTML
     soup = BeautifulSoup(html_content, 'html.parser')
-
-    # 2. Encontra a tag <main>
     main_tag = soup.find('main')
     if not main_tag:
-        print("Erro: A tag <main> não foi encontrada no HTML.")
         return None
-
-    # 3. Encontra o primeiro <div> dentro da tag <main>
-    # O método .find() retorna a primeira ocorrência que encontrar.
     content_div = main_tag.find('div')
     if not content_div:
-        print("Erro: Nenhum <div> foi encontrado dentro da tag <main>.")
         return None
-        
-    # 4. Extrai todo o texto do div e seus filhos
-    # O 'separator' ajuda a manter as quebras de linha entre os parágrafos
     text = content_div.get_text(separator='\n', strip=True)
-    
-    # 5. Limpeza final: remove linhas vazias extras para um resultado mais limpo
-    cleaned_text = "\n".join(line for line in text.splitlines() if line.strip())
+    return "\n".join(line for line in text.splitlines() if line.strip())
 
-    return cleaned_text
-
-def load_and_process_url(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[str, Dict[str, str]]:
+def load_and_process_url(args: LoadUrlInput) -> LoadUrlOutput:
     """
-    Busca o conteúdo de uma URL do TabNews e extrai o conteúdo principal.
-    
-    Args:
-        state: Estado atual do agente (não utilizado aqui, mas mantido por padrão).
-        args: Argumentos da ferramenta, esperando uma chave "url".
-    
-    Returns:
-        Uma tupla com o nome do campo a ser atualizado no estado e um dicionário
-        contendo o 'content' ou um 'error'.
+    Fetches the content of a TabNews URL and extracts the main text content.
     """
-    url = args.get("url", "")
-    if "tabnews.com.br" not in url:
-        return ("url_content", {"error": "A URL deve ser do domínio tabnews.com.br"})
+    if "tabnews.com.br" not in str(args.url):
+        return LoadUrlOutput(error="The URL must be from the tabnews.com.br domain.")
 
     try:
-        # Define um timeout para evitar que a requisição fique presa indefinidamente
-        response = requests.get(url, timeout=10)
-        # Lança uma exceção para códigos de erro HTTP (4xx ou 5xx)
+        response = requests.get(str(args.url), timeout=10)
         response.raise_for_status()
 
-        # Usa nossa nova função para processar o conteúdo
         main_text = process_html_content(response.content)
 
         if not main_text:
-            return ("url_content", {"error": "Falha ao processar o conteúdo HTML da página."})
+            return LoadUrlOutput(error="Failed to process the HTML content of the page.")
 
-        # Retorna o conteúdo processado com sucesso
-        return ("url_content", {"content": main_text})
+        return LoadUrlOutput(content=main_text)
 
     except requests.exceptions.RequestException as e:
-        # Captura erros de rede (DNS, conexão, timeout, etc.)
-        return ("url_content", {"error": f"Falha ao buscar a URL: {e}"})
+        return LoadUrlOutput(error=f"Failed to fetch the URL: {e}")
 
-def translate(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[str, Dict[str, str]]:
+def translate(args: TranslateInput) -> TranslateOutput:
     """
-    Translates text from one language to another using direct LLM call.
 
-    Args:
-        state: State of the agent (not used here, but required by the interface)
-        args: Arguments 
-        - text: Text to translate
-        - target_language: Target language for translation
-    Returns:
-        A tuple containing the name of the state variable to update and a dictionary with the translated text
+    Translates text to a target language using a direct LLM call.
     """
-    text = args.get("text", "")
-    target_language = args.get("target_language", "")
-    
-    if not text or not target_language:
-        return ("translation", {"error": "Both text and target_language are required"})
-
     try:
         import litellm
         messages = [
             {"role": "system", "content": "You are a professional translator. Provide accurate translations without additional commentary."},
-            {"role": "user", "content": f"Translate the following text to {target_language}: {text}"}
+            {"role": "user", "content": f"Translate the following text to {args.target_language}: {args.text}"}
         ]
         
         response = litellm.completion(
@@ -146,23 +133,28 @@ def translate(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[str, Dict[st
         )
         
         translation = response.choices[0].message.content.strip()
-        return ("translation", {"translation": translation, "original_text": text, "target_language": target_language})
+        return TranslateOutput(
+            translation=translation, 
+            original_text=args.text, 
+            target_language=args.target_language
+        )
         
     except Exception as e:
-        return ("translation", {"error": f"Translation failed: {str(e)}"})
+        return TranslateOutput(error=f"Translation failed: {str(e)}")
     
 
-# === Output Models ===
+# === Final Output Model ===
 
 class TabNewsRecentsPostSummaries(BaseModel):
+    """The final, structured output of the agent's work."""
     original_summary: str = Field(..., description="Original summary of the post")
     translated_summary: str = Field(..., description="Translated summary of the post")
     
 
-# === Simple Test ===
+# === Agent Execution ===
 
 run_agent_response = run_agent(
-    goal="Load articles from tabnews, select just one to load summarize and translate to chinese. It is not required to load all articles.",
+    goal="Load articles from tabnews, select just one, then read the post content, summarize, and then translate to chinese. It is not required to load all articles.",
     model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
     tools={
         "extract_tabnews_articles": extract_tabnews_articles,
@@ -170,16 +162,22 @@ run_agent_response = run_agent(
         "translate": translate
     },
     output_format=TabNewsRecentsPostSummaries,
-    max_iterations=30,
+    max_iterations=2,
     verbose=False
 )
 
-result = run_agent_response.get("result")
+# Access the final output from the TaskBasedAgentResult
+final_output = run_agent_response.final_output
 
 print("--- TabNews Article ---\n")
-print("Original Summary:\n")
-print(result.original_summary)
-print("\nTranslated Summary:\n")
-print(result.translated_summary)
+print(f"Goal achieved: {run_agent_response.goal_achieved}")
+print(f"Tasks completed: {run_agent_response.completed_tasks}")
+print(f"Planning cycles: {run_agent_response.planning_cycles}")
 
-
+if final_output:
+    print("\nOriginal Summary:\n")
+    print(final_output.original_summary)
+    print("\nTranslated Summary:\n")
+    print(final_output.translated_summary)
+else:
+    print("❌ No final output generated")

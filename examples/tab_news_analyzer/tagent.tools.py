@@ -6,105 +6,124 @@ from bs4 import BeautifulSoup
 
 def extract_tabnews_articles(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
     """
-    Fetches recent news from TabNews, extracts the URLs, 
-    titles, and publication dates, and returns them as a list of dictionaries.
+    Fetches a list of recent article titles and URLs from the TabNews RSS feed.
+    This tool is the first step to get articles for processing.
+    Keywords: TabNews, articles, list, fetch, extract, RSS.
     """
     url = "https://www.tabnews.com.br/recentes/rss"
     
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Raises an error for non-200 status codes
+        response.raise_for_status()
         
         root = ET.fromstring(response.content)
         
-        articles_list = []
-        
-        for item in root.findall('.//item'):
-            link = item.find('link').text
-            title = item.find('title').text
-            pub_date = item.find('pubDate').text
-            
-            articles_list.append({
-                "url": link,
-                "title": title,
-                "publication_date": pub_date
-            })
+        articles_list = [
+            {
+                "url": item.find('link').text,
+                "title": item.find('title').text,
+                "publication_date": item.find('pubDate').text
+            }
+            for item in root.findall('.//item')
+        ]
             
         return ("articles", articles_list)
 
     except requests.exceptions.RequestException as e:
         return ("articles", f"Failed to fetch news: {e}")
 
-def process_html_content(html_content: bytes) -> Optional[str]:
+def load_url_content(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[str, Dict[str, str]]:
     """
-    Analisa o conteúdo HTML, encontra a tag <main> e o primeiro <div> dentro dela,
-    e retorna o texto limpo.
-
-    Args:
-        html_content: O conteúdo HTML da página em bytes.
-
-    Returns:
-        Uma string com o texto extraído e limpo, ou None se não encontrar.
-    """
-    if not html_content:
-        return None
-
-    # 1. Inicia o BeautifulSoup para analisar o HTML
-    soup = BeautifulSoup(html_content, 'html.parser')
-
-    # 2. Encontra a tag <main>
-    main_tag = soup.find('main')
-    if not main_tag:
-        print("Erro: A tag <main> não foi encontrada no HTML.")
-        return None
-
-    # 3. Encontra o primeiro <div> dentro da tag <main>
-    # O método .find() retorna a primeira ocorrência que encontrar.
-    content_div = main_tag.find('div')
-    if not content_div:
-        print("Erro: Nenhum <div> foi encontrado dentro da tag <main>.")
-        return None
-        
-    # 4. Extrai todo o texto do div e seus filhos
-    # O 'separator' ajuda a manter as quebras de linha entre os parágrafos
-    text = content_div.get_text(separator='\n', strip=True)
-    
-    # 5. Limpeza final: remove linhas vazias extras para um resultado mais limpo
-    cleaned_text = "\n".join(line for line in text.splitlines() if line.strip())
-
-    return cleaned_text
-
-def load_and_process_url(state: Dict[str, Any], args: Dict[str, Any]) -> Tuple[str, Dict[str, str]]:
-    """
-    Busca o conteúdo de uma URL do TabNews e extrai o conteúdo principal.
-    
-    Args:
-        state: Estado atual do agente (não utilizado aqui, mas mantido por padrão).
-        args: Argumentos da ferramenta, esperando uma chave "url".
-    
-    Returns:
-        Uma tupla com o nome do campo a ser atualizado no estado e um dicionário
-        contendo o 'content' ou um 'error'.
+    Loads the full text content of a given URL. This tool is used to get the
+    content of a specific article before summarizing or processing it.
+    Keywords: load, URL, content, fetch, text.
     """
     url = args.get("url", "")
     if "tabnews.com.br" not in url:
-        return ("url_content", {"error": "A URL deve ser do domínio tabnews.com.br"})
+        return ("url_content", {"error": "The URL must be from the tabnews.com.br domain"})
 
     try:
-        # Define um timeout para evitar que a requisição fique presa indefinidamente
         response = requests.get(url, timeout=10)
-        # Lança uma exceção para códigos de erro HTTP (4xx ou 5xx)
         response.raise_for_status()
 
-        # Usa nossa nova função para processar o conteúdo
-        main_text = process_html_content(response.content)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        main_tag = soup.find('main')
+        if not main_tag:
+            return ("url_content", {"error": "Could not find the main content of the page."})
+            
+        text = main_tag.get_text(separator='\n', strip=True)
+        cleaned_text = "\n".join(line for line in text.splitlines() if line.strip())
 
-        if not main_text:
-            return ("url_content", {"error": "Falha ao processar o conteúdo HTML da página."})
-
-        # Retorna o conteúdo processado com sucesso
-        return ("url_content", {"content": main_text})
+        return ("url_content", {"content": cleaned_text})
 
     except requests.exceptions.RequestException as e:
-        # Captura erros de rede (DNS, conexão, timeout, etc.)
-        return ("url_content", {"error": f"Falha ao buscar a URL: {e}"})
+        return ("url_content", {"error": f"Failed to fetch the URL: {e}"})
+
+def summarize_text(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+    """
+    Summarizes a given text using an LLM. This is useful for creating a short
+    summary of a long article content.
+    Keywords: summarize, text, summary, LLM.
+    
+    Args:
+        state: Current agent state.
+        args: Tool arguments with the following keys:
+            - text (str): The text to be summarized.
+    """
+    import litellm
+
+    text_to_summarize = args.get("text")
+    if not text_to_summarize:
+        return ("summary", {"error": "The 'text' argument is required."})
+
+    try:
+        prompt = f"Summarize the following text. Return only the summary, with no additional comments:\n\n{text_to_summarize}"
+        messages = [{"role": "user", "content": prompt}]
+        
+        response = litellm.completion(
+            model="gemini/gemini-pro", 
+            messages=messages,
+            temperature=0.2
+        )
+        
+        summary = response.choices[0].message.content.strip()
+        return ("summary", {"text": summary})
+
+    except Exception as e:
+        return ("summary", {"error": f"Failed to summarize text: {e}"})
+
+def translate(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+    """
+    Translates a given text to a target language using an LLM.
+    Keywords: translate, language, text.
+
+    Args:
+        state: Current agent state.
+        args: Tool arguments with the following keys:
+            - text (str): The text to be translated.
+            - target_language (str): The language to translate to (e.g., "Chinese", "English").
+    """
+    import litellm
+
+    text_to_translate = args.get("text")
+    target_language = args.get("target_language")
+
+    if not text_to_translate or not target_language:
+        return ("translated_text", {"error": "The 'text' and 'target_language' arguments are required."})
+
+    try:
+        prompt = f"Translate the following text to {target_language}. Only return the translated text, with no additional comments or explanations:\n\n{text_to_translate}"
+        
+        messages = [{"role": "user", "content": prompt}]
+        
+        response = litellm.completion(
+            model="gemini/gemini-pro", 
+            messages=messages,
+            temperature=0.1
+        )
+        
+        translated_text = response.choices[0].message.content.strip()
+        return ("translated_text", {"text": translated_text, "language": target_language})
+
+    except Exception as e:
+        return ("translated_text", {"error": f"Failed to translate text: {e}"})

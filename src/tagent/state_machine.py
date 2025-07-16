@@ -1,287 +1,327 @@
 """
-State machine for TAgent to control valid action transitions.
-Prevents LLM from freely choosing actions that could create loops.
+Task-based State Machine for TAgent - Loop through tasks with retry logic.
 """
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, Any, List, Optional
 from enum import Enum
+from dataclasses import dataclass
+from .models import EnhancedAgentState
 
 
-class AgentState(Enum):
-    """Valid states in the agent execution."""
-    INITIAL = "initial"
+class TaskStatus(Enum):
+    """Status of individual tasks."""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    RETRYING = "retrying"
+
+
+class AgentPhase(Enum):
+    """High-level phases of the agent."""
+    INIT = "init"
     PLANNING = "planning"
     EXECUTING = "executing"
-    SUMMARIZING = "summarizing"
     EVALUATING = "evaluating"
     COMPLETED = "completed"
     FAILED = "failed"
-    FINALIZING = "finalizing"
 
 
-class ActionType(Enum):
-    """Valid action types."""
-    PLAN = "plan"
-    EXECUTE = "execute"
-    SUMMARIZE = "summarize"
-    EVALUATE = "evaluate"
-    FINALIZE = "finalize"
-    NO_ACTION = "no_action"
-
-class StateTransitionRule:
-    """Defines a valid state transition rule."""
+@dataclass
+class Task:
+    """Represents a single task to be executed."""
+    id: str
+    description: str
+    tool_args: Dict[str, Any]
+    tool_name: Optional[str] = None
+    status: TaskStatus = TaskStatus.PENDING
+    retry_count: int = 0
+    max_retries: int = 3
+    failure_reason: Optional[str] = None
+    result: Optional[Any] = None
     
-    def __init__(
-        self, 
-        from_state: AgentState, 
-        action: ActionType, 
-        to_state: AgentState,
-        condition: Optional[str] = None
-    ):
-        self.from_state = from_state
-        self.action = action
-        self.to_state = to_state
-        self.condition = condition
+    def can_retry(self) -> bool:
+        """Check if task can be retried."""
+        return self.retry_count < self.max_retries
+    
+    def mark_failed(self, reason: str):
+        """Mark task as failed with reason."""
+        self.status = TaskStatus.FAILED
+        self.failure_reason = reason
+    
+    def retry(self):
+        """Increment retry count and mark as retrying."""
+        self.retry_count += 1
+        self.status = TaskStatus.RETRYING
+    
+    def mark_completed(self, result: Any):
+        """Mark task as completed with result."""
+        self.status = TaskStatus.COMPLETED
+        self.result = result
 
 
-class AgentStateMachine:
+class TaskBasedStateMachine:
     """
-    State machine that enforces valid action transitions.
+    Task-based state machine for TAgent.
     
-    Mandatory flow:
-    INITIAL → PLAN (mandatory)
-    PLAN → EXECUTE (mandatory) 
-    EXECUTE → PLAN | EXECUTE | SUMMARIZE (AI chooses)
-    SUMMARIZE → EVALUATE (mandatory)
-    EVALUATE → PLAN (mandatory, returns to cycle)
-    
-    Rules:
-    1. INITIAL: can only PLAN
-    2. PLAN: can only EXECUTE  
-    3. EXECUTE: can PLAN, EXECUTE or SUMMARIZE
-    4. SUMMARIZE: must go to EVALUATE
-    5. EVALUATE: must return to PLAN
+    Flow:
+    1. PLAN → generates list of tasks
+    2. EXECUTE → loop through tasks:
+       - Try to execute each task
+       - If task fails, retry up to 3 times
+       - If still fails, go back to PLAN with status
+    3. EVALUATE → when all tasks completed/failed
+    4. Based on evaluation: COMPLETED or back to PLAN
     """
     
-    def __init__(self):
-        self.current_state = AgentState.INITIAL
-        self.last_action = None
-        self.action_history: List[ActionType] = []
-        self.state_history: List[AgentState] = [AgentState.INITIAL]
+    def __init__(self, goal: str, available_tools: List[str] = None):
+        """Initialize the task-based state machine."""
+        self.state = EnhancedAgentState(
+            goal=goal,
+            current_phase=AgentPhase.INIT.value,
+            available_tools=available_tools or []
+        )
+        self.tasks: List[Task] = []
+        self.current_task_index = 0
+        self.max_iterations = 20
+        self.current_iteration = 0
+        self.planning_cycles = 0
+        self.max_planning_cycles = 5
+    
+    def get_current_phase(self) -> AgentPhase:
+        """Get current phase as enum."""
+        return AgentPhase(self.state.current_phase)
+    
+    def set_phase(self, phase: AgentPhase):
+        """Set current phase."""
+        self.state.current_phase = phase.value
+        self.state.iteration = self.current_iteration
+    
+    def add_tasks(self, tasks: List[Dict[str, Any]]):
+        """Add tasks from planning phase."""
+        self.tasks.clear()
+        self.current_task_index = 0
         
-        # Define valid transitions
-        self.transitions = self._define_transitions()
+        for i, task_data in enumerate(tasks):
+            task = Task(
+                id=f"task_{i+1}",
+                description=task_data.get("description", ""),
+                tool_name=task_data.get("tool_name"),
+                tool_args=task_data.get("tool_args", {}),
+                max_retries=task_data.get("max_retries", 3)
+            )
+            self.tasks.append(task)
     
-    def _define_transitions(self) -> List[StateTransitionRule]:
-        """Define all valid state transitions."""
-        return [
-            # From INITIAL state - can only PLAN
-            StateTransitionRule(AgentState.INITIAL, ActionType.PLAN, AgentState.PLANNING),
-            
-            # From PLANNING state - can only EXECUTE
-            StateTransitionRule(AgentState.PLANNING, ActionType.EXECUTE, AgentState.EXECUTING),
-            
-            # From EXECUTING state - can PLAN, EXECUTE, SUMMARIZE, or EVALUATE
-            StateTransitionRule(AgentState.EXECUTING, ActionType.PLAN, AgentState.PLANNING),
-            StateTransitionRule(AgentState.EXECUTING, ActionType.EXECUTE, AgentState.EXECUTING),
-            StateTransitionRule(AgentState.EXECUTING, ActionType.SUMMARIZE, AgentState.SUMMARIZING),
-            StateTransitionRule(AgentState.EXECUTING, ActionType.EVALUATE, AgentState.EVALUATING),
-            
-            # From SUMMARIZING state - must go to EVALUATE (mandatory)
-            StateTransitionRule(AgentState.SUMMARIZING, ActionType.EVALUATE, AgentState.EVALUATING),
-            
-            # From EVALUATING state - can go to PLAN, EXECUTE, or FINALIZE
-            StateTransitionRule(AgentState.EVALUATING, ActionType.PLAN, AgentState.PLANNING),
-            StateTransitionRule(AgentState.EVALUATING, ActionType.EXECUTE, AgentState.EXECUTING),
-            StateTransitionRule(AgentState.EVALUATING, ActionType.FINALIZE, AgentState.FINALIZING, condition="goal_achieved"),
-
-            # From FINALIZING state - must go to COMPLETED (mandatory)
-            StateTransitionRule(AgentState.FINALIZING, ActionType.NO_ACTION, AgentState.COMPLETED),
-            StateTransitionRule(AgentState.FINALIZING, ActionType.NO_ACTION, AgentState.FAILED),
-        ]
+    def get_current_task(self) -> Optional[Task]:
+        """Get the current task being executed."""
+        if 0 <= self.current_task_index < len(self.tasks):
+            return self.tasks[self.current_task_index]
+        return None
     
-    def is_action_allowed(self, action: ActionType, agent_data: Dict = None) -> bool:
+    def get_next_task(self) -> Optional[Task]:
+        """Get the next pending task."""
+        for i in range(self.current_task_index, len(self.tasks)):
+            task = self.tasks[i]
+            if task.status in [TaskStatus.PENDING, TaskStatus.RETRYING]:
+                self.current_task_index = i
+                return task
+        return None
+    
+    def complete_current_task(self, result: Any):
+        """Mark current task as completed."""
+        if current_task := self.get_current_task():
+            current_task.mark_completed(result)
+            
+            # Add result to collected data
+            if isinstance(result, tuple) and len(result) == 2:
+                key, value = result
+                self.state.collected_data[key] = value
+            
+            # Move to next task
+            self.current_task_index += 1
+    
+    def fail_current_task(self, reason: str) -> bool:
         """
-        Check if an action is allowed from the current state.
+        Mark current task as failed and handle retry logic.
         
-        Args:
-            action: The action the LLM wants to take
-            agent_data: Current agent state data for condition checking
-            
         Returns:
-            True if action is allowed, False otherwise
+            True if task can be retried, False if max retries reached
         """
-        # First check business rules (these are critical and override state transitions)
-        if not self._check_business_rules(action, agent_data or {}):
-            return False
-        
-        # Then check for direct state transition validity
-        for rule in self.transitions:
-            if rule.from_state == self.current_state and rule.action == action:
-                # Check additional conditions if specified
-                if self._check_condition(rule.condition, agent_data):
-                    return True
-        
-        # If no explicit transition found, it's not allowed
+        if current_task := self.get_current_task():
+            if current_task.can_retry():
+                current_task.retry()
+                return True
+            else:
+                current_task.mark_failed(reason)
+                self.current_task_index += 1
+                return False
         return False
     
-    def _check_condition(self, condition: Optional[str], agent_data: Dict) -> bool:
-        """Check if a transition condition is met."""
-        if not condition:
-            return True
-            
-        # Add condition checking logic here if needed
-        # For now, we don't use specific conditions but keep agent_data for future use
-        _ = agent_data  # Mark as used to avoid linting warnings
-        return True
+    def all_tasks_processed(self) -> bool:
+        """Check if all tasks have been processed (completed or failed)."""
+        return all(
+            task.status in [TaskStatus.COMPLETED, TaskStatus.FAILED]
+            for task in self.tasks
+        )
     
-    def _check_business_rules(self, action: ActionType, agent_data: Dict) -> bool:
-        """Apply business rules for action validation."""
-        
-        # Rule 1: Should have data before SUMMARIZE
-        if action == ActionType.SUMMARIZE:
-            data_keys = [
-                k for k, v in agent_data.items() 
-                if k not in ["goal", "achieved", "used_tools"] and v
-            ]
-            if len(data_keys) < 1:
-                return False
-        
-        # Rule 2: Should not EVALUATE without sufficient data or a summary
-        if action == ActionType.EVALUATE:
-            has_summary = agent_data.get("summary") is not None and agent_data.get("summary") != ""
-            # Count meaningful data items (excluding meta fields)
-            data_keys = [
-                k for k, v in agent_data.items() 
-                if k not in ["goal", "achieved", "used_tools"] and v
-            ]
-            has_sufficient_data = len(data_keys) >= 2  # At least 2 data items
-            
-            # Allow evaluate if we have either a summary OR sufficient data
-            if not (has_summary or has_sufficient_data):
-                return False
-        
-        # Rule 3: Should only FINALIZE when goal is actually achieved
-        if action == ActionType.FINALIZE:
-            goal_achieved = agent_data.get("achieved", False)
-            if not goal_achieved:
-                return False
-        
-        # Rule 4: Prevent SUMMARIZE -> EVALUATE -> PLAN -> SUMMARIZE loops
-        if action == ActionType.SUMMARIZE:
-            if self.detect_summarize_evaluate_loop():
-                return False
-        
-        # Rule 5: From PLANNING state, enforce EXECUTE before SUMMARIZE
-        if action == ActionType.SUMMARIZE and self.current_state == AgentState.PLANNING:
-            # Check if we just came from EVALUATING state (which would put us in PLANNING)
-            if len(self.state_history) >= 2 and self.state_history[-2] == AgentState.EVALUATING:
-                # Must EXECUTE before SUMMARIZE after failed evaluation
-                return False
-        
-        return True
+    def has_pending_tasks(self) -> bool:
+        """Check if there are pending tasks to execute."""
+        return any(
+            task.status in [TaskStatus.PENDING, TaskStatus.RETRYING]
+            for task in self.tasks
+        )
     
-    def get_allowed_actions(self, agent_data: Dict = None) -> Set[ActionType]:
-        """Get all currently allowed actions."""
-        allowed = set()
-        for action in ActionType:
-            if self.is_action_allowed(action, agent_data):
-                allowed.add(action)
-        return allowed
+    def get_task_summary(self) -> Dict[str, Any]:
+        """Get summary of task statuses."""
+        summary = {
+            "total_tasks": len(self.tasks),
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "retrying": 0,
+            "current_task_index": self.current_task_index
+        }
+        
+        for task in self.tasks:
+            if task.status == TaskStatus.COMPLETED:
+                summary["completed"] += 1
+            elif task.status == TaskStatus.FAILED:
+                summary["failed"] += 1
+            elif task.status == TaskStatus.PENDING:
+                summary["pending"] += 1
+            elif task.status == TaskStatus.RETRYING:
+                summary["retrying"] += 1
+        
+        return summary
     
-    def transition(self, action: ActionType) -> bool:
-        """
-        Attempt to transition to a new state.
-        
-        Args:
-            action: The action being taken
-            
-        Returns:
-            True if transition successful, False if invalid
-        """
-        # Find the target state for this transition
-        target_state = None
-        for rule in self.transitions:
-            if rule.from_state == self.current_state and rule.action == action:
-                target_state = rule.to_state
-                break
-        
-        if target_state is None:
-            return False
-        
-        # Update state
-        self.current_state = target_state
-        self.last_action = action
-        self.action_history.append(action)
-        self.state_history.append(target_state)
-        
-        return True
+    def get_failed_tasks(self) -> List[Task]:
+        """Get list of failed tasks."""
+        return [task for task in self.tasks if task.status == TaskStatus.FAILED]
     
-    def get_forced_action(self, rejected_action: ActionType, agent_data: Dict = None) -> ActionType:
-        """
-        Get a forced action when the LLM's choice is invalid.
+    def get_failed_tasks_context(self) -> str:
+        """Get context about failed tasks for planning."""
+        failed_tasks = self.get_failed_tasks()
         
-        Args:
-            rejected_action: The action that was rejected
-            agent_data: Current agent state data
-            
-        Returns:
-            A valid action to force instead
-        """
-        # For future use - we may want to use rejected_action for better decision making
-        _ = rejected_action  # Mark as used to avoid linting warnings
+        if not failed_tasks:
+            return ""
         
-        # Get any allowed action based on current state
-        allowed = self.get_allowed_actions(agent_data)
+        context_parts = ["FAILED TASKS:"]
+        for task in failed_tasks:
+            context_parts.append(f"- {task.description}: {task.failure_reason}")
         
-        if allowed:
-            # Return the first allowed action (there should only be one in many cases)
-            return list(allowed)[0]
-        else:
-            # Emergency fallback - should not happen with proper state machine
-            return ActionType.PLAN
+        return "\n".join(context_parts)
     
-    def reset(self):
-        """Reset the state machine to initial state."""
-        self.current_state = AgentState.INITIAL
-        self.last_action = None
-        self.action_history = []
-        self.state_history = [AgentState.INITIAL]
+    def should_return_to_planning(self) -> bool:
+        """Check if should return to planning due to failed tasks."""
+        failed_tasks = self.get_failed_tasks()
+        
+        # Return to planning if:
+        # 1. There are failed tasks AND
+        # 2. We haven't exceeded max planning cycles
+        return (
+            len(failed_tasks) > 0 
+            and self.planning_cycles < self.max_planning_cycles
+        )
     
-    def detect_summarize_evaluate_loop(self, lookback_steps: int = 6) -> bool:
-        """
-        Detect if agent is stuck in SUMMARIZE -> EVALUATE -> PLAN -> SUMMARIZE loop.
+    def start_new_planning_cycle(self):
+        """Start a new planning cycle."""
+        self.planning_cycles += 1
+        self.current_iteration += 1
+        self.set_phase(AgentPhase.PLANNING)
         
-        Args:
-            lookback_steps: Number of recent actions to analyze
-            
-        Returns:
-            True if loop detected, False otherwise
-        """
-        if len(self.action_history) < 4:
-            return False
-            
-        # Look at recent actions
-        recent_actions = self.action_history[-lookback_steps:]
-        
-        # Count occurrences of the problematic pattern
-        summarize_count = recent_actions.count(ActionType.SUMMARIZE)
-        evaluate_count = recent_actions.count(ActionType.EVALUATE)
-        plan_count = recent_actions.count(ActionType.PLAN)
-        
-        # If we have multiple cycles of SUMMARIZE -> EVALUATE -> PLAN without EXECUTE
-        if (summarize_count >= 2 and evaluate_count >= 2 and plan_count >= 2):
-            # Check if there's any EXECUTE action in between
-            execute_count = recent_actions.count(ActionType.EXECUTE)
-            return execute_count == 0
-        
-        return False
+        # Update state with failure context
+        failed_context = self.get_failed_tasks_context()
+        self.state.failure_reason = failed_context if failed_context else None
+        self.state.last_result = "failed" if failed_context else "success"
     
-    def get_state_info(self) -> Dict:
-        """Get current state machine information."""
+    def should_continue(self) -> bool:
+        """Check if agent should continue executing."""
+        return (
+            self.current_iteration < self.max_iterations
+            and self.planning_cycles < self.max_planning_cycles
+            and self.get_current_phase() not in [AgentPhase.COMPLETED, AgentPhase.FAILED]
+        )
+    
+    def get_execution_context(self) -> Dict[str, Any]:
+        """Get context for current execution."""
+        current_task = self.get_current_task()
+        
         return {
-            "current_state": self.current_state.value,
-            "last_action": self.last_action.value if self.last_action else None,
-            "action_history": [a.value for a in self.action_history],
-            "state_history": [s.value for s in self.state_history]
+            "current_phase": self.state.current_phase,
+            "current_task": {
+                "id": current_task.id if current_task else None,
+                "description": current_task.description if current_task else None,
+                "tool_name": current_task.tool_name if current_task else None,
+                "retry_count": current_task.retry_count if current_task else 0,
+                "status": current_task.status.value if current_task else None
+            },
+            "task_summary": self.get_task_summary(),
+            "iteration": self.current_iteration,
+            "planning_cycles": self.planning_cycles,
+            "collected_data_keys": list(self.state.collected_data.keys()),
+            "failure_reason": self.state.failure_reason
+        }
+    
+    def get_planning_context(self) -> Dict[str, Any]:
+        """Get context for planning phase."""
+        return {
+            "goal": self.state.goal,
+            "planning_cycle": self.planning_cycles,
+            "previous_tasks": [
+                {
+                    "description": task.description,
+                    "status": task.status.value,
+                    "failure_reason": task.failure_reason
+                }
+                for task in self.tasks
+            ],
+            "failed_tasks_context": self.get_failed_tasks_context(),
+            "available_tools": self.state.available_tools,
+            "collected_data": self.state.collected_data
+        }
+    
+    def get_evaluation_context(self) -> Dict[str, Any]:
+        """Get context for evaluation phase."""
+        task_summary = self.get_task_summary()
+        
+        return {
+            "goal": self.state.goal,
+            "task_summary": task_summary,
+            "completed_tasks": task_summary["completed"],
+            "failed_tasks": task_summary["failed"],
+            "total_tasks": task_summary["total_tasks"],
+            "collected_data": self.state.collected_data,
+            "failed_tasks_details": [
+                {
+                    "description": task.description,
+                    "failure_reason": task.failure_reason,
+                    "retry_count": task.retry_count
+                }
+                for task in self.get_failed_tasks()
+            ]
+        }
+    
+    def mark_completed(self, success: bool = True):
+        """Mark the entire process as completed."""
+        if success:
+            self.set_phase(AgentPhase.COMPLETED)
+        else:
+            self.set_phase(AgentPhase.FAILED)
+            
+        self.state.last_result = "success" if success else "failed"
+    
+    def get_state_summary(self) -> Dict[str, Any]:
+        """Get comprehensive state summary."""
+        return {
+            "current_phase": self.state.current_phase,
+            "goal": self.state.goal,
+            "iteration": self.current_iteration,
+            "planning_cycles": self.planning_cycles,
+            "max_iterations": self.max_iterations,
+            "max_planning_cycles": self.max_planning_cycles,
+            "task_summary": self.get_task_summary(),
+            "failed_tasks_count": len(self.get_failed_tasks()),
+            "collected_data_count": len(self.state.collected_data),
+            "should_continue": self.should_continue(),
+            "failure_reason": self.state.failure_reason
         }

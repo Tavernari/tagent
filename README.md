@@ -2,23 +2,24 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.5.0-green.svg)](https://github.com/yourusername/tagent2)
+[![Version](https://img.shields.io/badge/version-0.5.6-green.svg)](https://github.com/yourusername/tagent2)
 
-> **A minimalist, Redux-inspired framework for AI agents that actually makes sense**
+> **A task-based, minimalist framework for AI agents that actually makes sense**
 
-Fed up with bloated frameworks that need 50 dependencies and 200 lines of boilerplate just to make a simple automation? TAgent is a straightforward, less verbose approach to building AI agents that solve specific problems without the unnecessary complexity.
+Fed up with bloated frameworks that need 50 dependencies and 200 lines of boilerplate just to make a simple automation? TAgent is a straightforward, task-based approach to building AI agents that solve specific problems without the unnecessary complexity.
 
 ![gif](https://vhs.charm.sh/vhs-dujKmiVTP09yg9gOXAbs5.gif)
 
 ## Why TAgent?
 
-TAgent follows a simple philosophy: **state-controlled execution with LLM fallbacks**. Instead of complex function calling or massive dependency trees, you get:
+TAgent follows a simple philosophy: **task-based execution with intelligent fallbacks**. Instead of complex function calling or massive dependency trees, you get:
 
-- **Redux-inspired Architecture**: Predictable state management with centralized store
-- **State Machine Control**: Prevents infinite loops and unpredictable behavior  
-- **Structured Outputs**: Works with any LLM via JSON, not function calling
-- **Intelligent Fallbacks**: When tools don't exist, uses LLM knowledge directly
-- **Zero Boilerplate**: Get started with 3 lines of code
+- **🎯 Task-Based Architecture**: Clear phase-based execution (INIT → PLAN → EXECUTE → EVALUATE → FINALIZE)
+- **🔄 Retry Logic**: Automatic retry for failed tasks with intelligent fallbacks
+- **🧠 LLM Fallbacks**: When tools aren't available, uses LLM knowledge directly
+- **📚 Enhanced Memory**: Simple context management for better decision making
+- **📊 Structured Outputs**: Works with any LLM via JSON, not function calling
+- **⚡ Zero Boilerplate**: Get started with 3 lines of code
 
 ## Quick Start
 
@@ -28,27 +29,213 @@ pip install -e .
 
 ```python
 from tagent import run_agent
-from tagent.config import TAgentConfig
 
-# Simple usage with configuration
-config = TAgentConfig(
-    model="gpt-4o-mini",
-    max_iterations=3,
+# Simple usage - task-based approach
+result = run_agent(
+    goal="Translate 'Hello world' to Chinese",
+    model="gpt-4",
     verbose=True
 )
 
-result = run_agent(
-    goal="Translate 'Hello world' to Chinese",
-    config=config
-)
-
-print(result.get("raw_data", {}).get("llm_direct_response"))
-# Output: 你好世界
+print(f"Goal achieved: {result.goal_achieved}")
+print(f"Final output: {result.final_output.result}")
+# Output: Goal achieved: True
+# Final output: 你好世界
 ```
 
-## Configuration System
+### With Custom Tools
 
-TAgent v0.5.0 introduces a comprehensive configuration system that centralizes all agent settings. You can configure UI style, model settings, execution parameters, and more.
+```python
+from tagent import run_agent
+from pydantic import BaseModel, Field
+
+# Define a custom tool
+def search_web(state, args):
+    query = args.get("query", "")
+    # Simulate web search
+    return ("search_results", f"Results for: {query}")
+
+# Define output format
+class SearchReport(BaseModel):
+    query: str = Field(description="The search query")
+    results: str = Field(description="Search results summary")
+
+# Run agent with tools
+result = run_agent(
+    goal="Search for information about Python async programming",
+    tools={"search_web": search_web},
+    output_format=SearchReport,
+    model="gpt-4",
+    verbose=True
+)
+
+print(f"Tasks completed: {result.completed_tasks}")
+print(f"Final output: {result.final_output}")
+```
+
+## 🏗️ Task-Based Architecture
+
+TAgent v0.5.6 introduces a revolutionary **task-based approach** that makes AI agent behavior predictable and reliable:
+
+### The Flow
+
+```
+INIT → PLANNING → EXECUTING → EVALUATING → FINALIZE
+  ↓        ↓         ↓           ↓           ↓
+Setup   Create    Execute     Check if    Format
+        Tasks     Tasks       Goal Met    Output
+                   ↓
+              (Retry failed tasks)
+                   ↓
+              (Return to PLANNING if needed)
+```
+
+### Key Features
+
+#### 1. **Intelligent Planning**
+- Creates specific, actionable tasks to achieve the goal
+- Considers available tools and previous failures
+- Uses RAG context for better decision making
+
+#### 2. **Robust Execution**
+- Executes tasks one by one with retry logic (3 retries by default)
+- **LLM Fallback**: When tools aren't available, uses LLM knowledge directly
+- Intelligent failure recovery and re-planning
+
+#### 3. **Smart Evaluation**
+- Assesses goal achievement after task completion
+- Provides detailed feedback on what's missing
+- Decides whether to retry or proceed to finalization
+
+#### 4. **Comprehensive Finalization**
+- Creates structured final output based on specified format
+- Includes execution statistics and context
+- Provides clear results for the user
+
+## 🧠 Enhanced Memory System (Simple Context Management)
+
+TAgent includes a **simple context management** system that helps the agent make better decisions:
+
+### How Context Management Works
+
+1. **Memory Storage**: Automatically stores important facts, execution results, and learned patterns in memory
+2. **Context Retrieval**: Provides relevant context for each phase using keyword-based search
+3. **Decision Enhancement**: Uses stored context to improve planning and execution decisions
+
+### Memory Types
+
+```python
+# Automatically stored memories include:
+- Execution results (success/failure)
+- Key facts learned during execution
+- Tool usage patterns
+- Error patterns and solutions
+- Goal-specific insights
+```
+
+### Context Usage
+
+```python
+# The system automatically uses context for:
+- Better task planning based on previous experiences
+- Smarter tool selection and parameter choices
+- Improved error handling and recovery
+- Enhanced goal evaluation
+```
+
+### Note on Implementation
+
+The current implementation uses simple keyword-based search in memory. For production use cases requiring semantic search, you can extend the system with:
+- Vector embeddings (OpenAI, Sentence Transformers)
+- Vector databases (Chroma, Pinecone, Weaviate)
+- Semantic similarity search
+
+## 🛠️ Tool System
+
+### Tool Interface
+
+All tools follow a simple, consistent interface:
+
+```python
+def my_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
+    """
+    Tool description.
+    
+    Args:
+        state: Current agent state for context
+        args: Tool-specific arguments
+        
+    Returns:
+        Tuple of (key, value) for state update, or None if failed
+    """
+    # Tool logic here
+    return ("result_key", result_value)
+```
+
+### LLM Fallback System
+
+When tools aren't available, TAgent automatically uses the LLM as a fallback:
+
+```python
+# No tools? No problem!
+result = run_agent(
+    goal="Translate 'Hello world' to Chinese",
+    model="gpt-4"
+    # No tools defined - will use LLM fallback
+)
+# Still works perfectly! 🎉
+```
+
+### Tool Registration
+
+```python
+# Register multiple tools
+tools = {
+    "web_search": search_web_tool,
+    "file_read": read_file_tool,
+    "calculate": math_tool,
+    "translate": translate_tool
+}
+
+result = run_agent(
+    goal="Research AI trends and create a report",
+    tools=tools,
+    model="gpt-4"
+)
+```
+
+## 📊 Result Structure
+
+TAgent returns a comprehensive `TaskBasedAgentResult` object:
+
+```python
+class TaskBasedAgentResult(BaseModel):
+    final_output: Any               # Your structured result
+    goal_achieved: bool             # Success indicator
+    iterations_used: int            # Execution steps taken
+    planning_cycles: int            # Planning iterations
+    total_tasks: int                # Total tasks created
+    completed_tasks: int            # Successfully completed
+    failed_tasks: int               # Failed tasks
+    state_summary: Dict[str, Any]   # Execution state
+    memory_summary: Dict[str, Any]  # Context system summary
+    failure_reason: Optional[str]   # Failure details if any
+```
+
+### Default Output Format
+
+When no `output_format` is specified, TAgent returns:
+
+```python
+class DefaultFinalOutput(BaseModel):
+    result: str                     # Main answer for the user
+    summary: str                    # Execution summary
+    achievements: List[str]         # What was accomplished
+    challenges: List[str]           # Issues encountered
+    data_collected: Dict[str, Any]  # All collected data
+```
+
+## 🔧 Configuration System
 
 ### Basic Configuration
 
@@ -62,7 +249,7 @@ config = TAgentConfig(
     model="gpt-4o-mini",
     max_iterations=10,
     verbose=True,
-    ui_style=UIStyle.INSTITUTIONAL,  # or UIStyle.ANIMATED
+    ui_style=UIStyle.INSTITUTIONAL,
     api_key="your-api-key"
 )
 
@@ -72,624 +259,280 @@ result = run_agent("Your goal here", config=config)
 
 ### Environment Variables
 
-Configure TAgent using environment variables:
+TAgent automatically loads environment variables from `.env` files:
 
 ```bash
-export TAGENT_MODEL="gpt-4o-mini"
-export TAGENT_MAX_ITERATIONS=20
-export TAGENT_VERBOSE=true
-export TAGENT_UI_STYLE=institutional  # or animated
-export TAGENT_API_KEY="your-api-key"
+# .env file
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
+GEMINI_API_KEY=your-gemini-key
+OPENROUTER_API_KEY=your-openrouter-key
 ```
 
-### UI Styles
-
-TAgent supports two UI styles:
-
-#### Animated UI (Matrix-style)
-- Retro terminal effects with typing animations
-- Blinking cursor and thinking animations
-- Colorful output perfect for demonstrations
-
-#### Institutional UI (Server-focused)
-- Clean, structured logging: `timestamp [LEVEL] COMPONENT: message`
-- No animations, optimized for server environments
-- Perfect for production and log analysis
+### Model Configuration
 
 ```python
-# Set UI style programmatically
-from tagent.ui import set_ui_style
+# Simple model selection
+result = run_agent(
+    goal="Your goal",
+    model="gpt-4",  # or "claude-3-sonnet", "gemini-pro", etc.
+)
+
+# Advanced model configuration
+from tagent.model_config import AgentModelConfig
+
+config = AgentModelConfig(
+    tagent_model="gpt-4",
+    planner_model="gpt-4",
+    executor_model="gpt-3.5-turbo",
+    evaluator_model="gpt-4",
+    api_key="your-key"
+)
+
+result = run_agent(goal="Your goal", model=config)
+```
+
+## 🎨 UI Styles
+
+TAgent includes beautiful, retro-inspired UI styles:
+
+```python
 from tagent.ui.factory import UIStyle
 
-set_ui_style(UIStyle.INSTITUTIONAL)
+# Choose your style
+result = run_agent(
+    goal="Your goal",
+    ui_style=UIStyle.ANIMATED    # Animated progress bars
+    # or UIStyle.INSTITUTIONAL   # Clean, professional look
+)
 ```
 
-### CLI Tool Configuration
+## 📚 Examples
 
-TAgent provides a CLI for running agents with dynamic tool discovery:
-
-```bash
-# Run without tools (uses LLM knowledge only)
-python -m tagent "What is 2+2?" --model gpt-4o-mini
-
-# Run with tools from specific directory
-python -m tagent "Analyze recent articles" --search-dir ./examples/tab_news_analyzer
-
-# Run with specific tool files
-python -m tagent "Plan a trip" --tools ./travel/tagent.tools.py --tools ./weather/tagent.tools.py
-```
-
-### Tool Discovery Options
-
-The CLI supports several ways to configure tool loading:
-
-- **`--tools`** - Specify exact paths to `tagent.tools.py` files
-- **`--search-dir`** - Search directories for tool files (supports multiple directories)
-- **`--recursive`** - Search directories recursively (default: True)
-- **`--no-recursive`** - Disable recursive search
-- **`--output`** - Specify path to `tagent.output.py` for structured outputs
-
-### Default Behavior
-
-**Important**: When no tool configuration is provided, TAgent runs **without tools** and uses LLM knowledge only. This prevents unwanted recursive searches in your entire file system.
-
-```bash
-# These run without tools:
-python -m tagent "Simple question"
-python -m tagent "Calculate something" --model gpt-4o-mini
-
-# These search for tools:
-python -m tagent "Complex task" --search-dir .
-python -m tagent "Use specific tool" --tools ./my_tools/tagent.tools.py
-```
-
-### Tool File Structure
-
-Tools must be in files named `tagent.tools.py` with this signature:
+### Simple Translation
 
 ```python
-def my_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
-    """
-    Tool description here.
-    
-    Args:
-        state: Current agent state
-        args: Tool arguments from LLM
-        
-    Returns:
-        Tuple of (key, value) for state update
-    """
-    # Your tool logic here
-    return ("result_key", result_value)
+from tagent import run_agent
+
+result = run_agent(
+    goal="Translate 'Hello world' to Chinese",
+    model="gpt-4"
+)
+
+print(f"🎯 RESULT: {result.final_output.result}")
+print(f"📝 SUMMARY: {result.final_output.summary}")
 ```
 
-### Examples
-
-```bash
-# Run with tools from current directory (recursive search)
-python -m tagent "Analyze data" --search-dir . --recursive
-
-# Run with tools from specific directories only
-python -m tagent "Multi-step task" --search-dir ./tools --search-dir ./integrations
-
-# Run with exact tool files and custom output format
-python -m tagent "Generate report" --tools ./reporting/tagent.tools.py --output ./reporting/tagent.output.py
-
-# Run without any tools (LLM knowledge only)
-python -m tagent "Simple calculation" --model gpt-4o-mini
-```
-
-## How It Works Under the Hood
-
-### Deterministic State Machine
-Instead of letting the LLM do whatever it wants, the agent follows a controlled flow:
-
-```
-INITIAL → PLAN → EXECUTE → EVALUATE → (loop until goal achieved)
-```
-
-Each transition is validated, preventing infinite loops and unpredictable behaviors.
-
-## State Machine Architecture (v0.5.0)
-
-TAgent v0.5.0 implements a sophisticated state machine that ensures predictable execution flow and prevents infinite loops. The architecture follows strict transition rules while giving the AI strategic decision points.
-
-### Complete State Flow Diagram
-
-```
-                    🚀 INITIAL
-                        │
-                        │ (automatic)
-                        ▼
-                       PLAN ◄──────────────────────┐
-                        │                          │
-                        │ (automatic)              │
-                        ▼                          │
-                       EXECUTE                     │
-                        │                          │
-                        │ (AI chooses)             │
-                        ├─────────────┐            │
-                        │             │            │
-                        ▼             ▼            │
-                       EXECUTE        SUMMARIZE    │
-                       (loop)         │            │
-                                      │(automatic) │
-                                      ▼            │
-                                   EVALUATE        │
-                                      │            │
-                                      │(automatic) │
-                                      └────────────┘
-```
-
-### State Transition Rules
-
-#### Mandatory Transitions (Automatic)
-These transitions happen automatically without AI choice:
-
-- **INITIAL → PLAN**: Agent must start by creating a plan
-- **PLAN → EXECUTE**: Plans must be executed
-- **SUMMARIZE → EVALUATE**: Summaries trigger evaluation
-- **EVALUATE → PLAN**: Evaluations trigger re-planning
-
-#### AI Decision Points
-The AI can choose between multiple options at these states:
-
-- **EXECUTE**: Can choose to:
-  - Continue with another **EXECUTE** action (tool usage, data processing)
-  - Move to **SUMMARIZE** when ready to conclude
-
-### Execution Flow Examples
-
-#### Simple Task Flow
-```
-INITIAL → PLAN → EXECUTE → SUMMARIZE → EVALUATE → PLAN (goal achieved)
-```
-
-#### Complex Multi-Step Task
-```
-INITIAL → PLAN → EXECUTE → EXECUTE → EXECUTE → SUMMARIZE → EVALUATE → PLAN → EXECUTE → SUMMARIZE → EVALUATE (complete)
-```
-
-#### Failed Execution Recovery
-```
-INITIAL → PLAN → EXECUTE (fails) → EXECUTE (retry) → SUMMARIZE → EVALUATE (needs replanning) → PLAN → EXECUTE → SUMMARIZE → EVALUATE (success)
-```
-
-### State Descriptions
-
-#### 🚀 INITIAL
-- **Purpose**: Entry point for the agent
-- **Behavior**: Automatically transitions to PLAN
-- **Duration**: Instantaneous
-
-#### 📋 PLAN
-- **Purpose**: Create strategic plan based on goal and current state
-- **Behavior**: Automatically transitions to EXECUTE
-- **LLM Task**: Generate actionable steps and identify required tools
-- **Output**: Structured plan with next actions
-
-#### ⚡ EXECUTE
-- **Purpose**: Perform actions, use tools, process data
-- **Behavior**: AI chooses next state (EXECUTE again or SUMMARIZE)
-- **LLM Task**: Execute tools, process information, make progress
-- **Decision Logic**:
-  - Choose **EXECUTE** if more work needed
-  - Choose **SUMMARIZE** if ready to conclude
-
-#### 📊 SUMMARIZE
-- **Purpose**: Consolidate results and prepare evaluation
-- **Behavior**: Automatically transitions to EVALUATE
-- **LLM Task**: Synthesize all work done and results achieved
-- **Output**: Comprehensive summary of progress
-
-#### 🔍 EVALUATE
-- **Purpose**: Assess if goal is achieved and determine next steps
-- **Behavior**: Automatically transitions to PLAN
-- **LLM Task**: Determine if goal is met or what needs to be done next
-- **Decision Logic**:
-  - If goal achieved: Mark as complete
-  - If more work needed: Continue with new planning cycle
-
-### Loop Prevention Mechanisms
-
-The state machine implements several mechanisms to prevent infinite loops:
-
-#### 1. **Max Iterations Control**
-```python
-config = TAgentConfig(max_iterations=10)  # Limits total EXECUTE actions
-```
-
-#### 2. **State Transition Validation**
-- Prevents invalid transitions (e.g., SUMMARIZE → SUMMARIZE)
-- Enforces mandatory paths
-- Validates state consistency
-
-#### 3. **Progress Tracking**
-- Monitors if agent is making meaningful progress
-- Detects repetitive behaviors
-- Triggers intervention when stuck
-
-#### 4. **Strategic Choice Points**
-- AI only has decision power at specific moments
-- Reduces unpredictable behavior
-- Maintains deterministic flow
-
-### Implementation Benefits
-
-#### 🎯 **Predictable Execution**
-- Every agent run follows the same pattern
-- Debugging is straightforward
-- Behavior is reproducible
-
-#### 🚫 **Loop Prevention**
-- Impossible to get stuck in SUMMARIZE loops
-- EVALUATE always returns to productive work
-- Maximum iteration limits prevent runaway execution
-
-#### 🔄 **Self-Correction**
-- Failed executions trigger re-planning
-- Agent can adapt strategy based on results
-- Built-in recovery mechanisms
-
-#### 📊 **Progress Visibility**
-- Clear state indicators show agent progress
-- Easy to understand where agent is in the process
-- Helpful for debugging and monitoring
-
-### Advanced State Management
-
-#### State Persistence
-```python
-# State is maintained throughout execution
-state = {
-    "goal": "Original user goal",
-    "current_state": "EXECUTE",
-    "iteration": 3,
-    "tools_used": ["search", "translate"],
-    "results": {...}
-}
-```
-
-#### State Validation
-```python
-# Each transition is validated
-def validate_transition(current_state: str, next_state: str) -> bool:
-    valid_transitions = {
-        "INITIAL": ["PLAN"],
-        "PLAN": ["EXECUTE"],
-        "EXECUTE": ["EXECUTE", "SUMMARIZE"],
-        "SUMMARIZE": ["EVALUATE"],
-        "EVALUATE": ["PLAN"]
-    }
-    return next_state in valid_transitions.get(current_state, [])
-```
-
-This architecture ensures TAgent remains controllable and predictable while still allowing the AI to make intelligent decisions about execution flow.
-
-### Structured Outputs Over Function Calling
-No function calling dependency. The LLM returns structured JSON validated with Pydantic:
-
-```json
-{
-  "action": "execute",
-  "params": {"tool": "search", "args": {"query": "python"}},
-  "reasoning": "Need to search for Python information"
-}
-```
-
-### Intelligent Fallback System
-If a tool doesn't exist, the agent uses the LLM's own knowledge as fallback. No crashes, no errors - it just works.
+### Web Scraping and Analysis
 
 ```python
-# Tool not found? No problem!
-# Agent automatically uses LLM knowledge instead
-```
+from tagent import run_agent
+from pydantic import BaseModel, Field
 
-## Real-World Example
+# Define tools
+def extract_articles(state, args):
+    # Extract articles from RSS
+    return ("articles", articles_list)
 
-Here's an agent that extracts and translates TabNews articles:
+def analyze_content(state, args):
+    # Analyze article content
+    return ("analysis", analysis_result)
 
-```python
-def extract_tabnews_articles(state, args):
-    """Extract recent articles from TabNews RSS"""
-    response = requests.get("https://www.tabnews.com.br/recentes/rss")
-    root = ET.fromstring(response.content)
-    
-    articles = []
-    for item in root.findall('.//item'):
-        articles.append({
-            "url": item.find('link').text,
-            "title": item.find('title').text,
-            "publication_date": item.find('pubDate').text
-        })
-    
-    return ("articles", articles)
+# Define output format
+class ArticleAnalysis(BaseModel):
+    title: str = Field(description="Article title")
+    summary: str = Field(description="Article summary")
+    sentiment: str = Field(description="Sentiment analysis")
 
-def translate(state, args):
-    """Translate text using direct LLM call"""
-    text = args.get("text", "")
-    target = args.get("target_language", "")
-    
-    response = litellm.completion(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a professional translator."},
-            {"role": "user", "content": f"Translate to {target}: {text}"}
-        ]
-    )
-    
-    return ("translation", {"translation": response.choices[0].message.content})
-
-# Run the agent with configuration
-config = TAgentConfig(
-    model="gpt-4o-mini",
-    max_iterations=15,
+# Run agent
+result = run_agent(
+    goal="Extract latest tech articles and analyze sentiment",
     tools={
-        "extract_tabnews_articles": extract_tabnews_articles,
-        "load_url_content": load_url_content,
-        "translate": translate
+        "extract_articles": extract_articles,
+        "analyze_content": analyze_content
     },
+    output_format=ArticleAnalysis,
+    model="gpt-4"
+)
+```
+
+### Complex Research Task
+
+```python
+from tagent import run_agent
+
+# Define research tools
+tools = {
+    "search_web": web_search_tool,
+    "read_pdf": pdf_reader_tool,
+    "analyze_data": data_analysis_tool,
+    "create_chart": visualization_tool
+}
+
+result = run_agent(
+    goal="Research AI market trends for 2024 and create a comprehensive report",
+    tools=tools,
+    model="gpt-4",
+    max_iterations=50,
     verbose=True
 )
 
+print(f"Research completed: {result.goal_achieved}")
+print(f"Tasks executed: {result.completed_tasks}")
+print(f"Final report: {result.final_output}")
+```
+
+## 🚀 Advanced Features
+
+### Retry Logic
+
+```python
+# Built-in retry for failed tasks
 result = run_agent(
-    goal="Get 1 TabNews article, load content, summarize and translate to Chinese",
-    config=config
+    goal="Fetch data from unreliable API",
+    tools={"fetch_api": unreliable_api_tool},
+    model="gpt-4"
+    # Automatically retries failed tasks up to 3 times
 )
 ```
 
-The agent plans, executes tools in the correct order, and delivers structured results.
-
-## Tool Ecosystem & Extensibility
-
-Currently no default tools (keeping it minimal), but adapters are being developed for:
-- **CrewAI** tools
-- **LangChain** tools  
-- **Model Context Protocol (MCP)** tools
-
-The idea is to leverage existing ecosystems without being locked into them.
-
-## Why Redux for Agents?
-
-- **Predictable State**: Always know what's happening
-- **Debug Friendly**: Every step is logged and inspectable
-- **Composition**: Tools are pure functions, easy to test
-- **Extensible**: Adding new actions is trivial
-- **Time Travel**: Replay actions for debugging
-
-## Performance & Model Support
-
-Works with any model via LiteLLM:
-- OpenAI (GPT-4, GPT-3.5)
-- Anthropic (Claude)
-- Ollama (local models)
-- OpenRouter
-- Google Gemini
-- Azure OpenAI
-- And 100+ more...
-
-Each action type can use a different model (planning with GPT-4, execution with cheaper model).
-
-## UI Styles in Action
-
-### Animated UI (Matrix-style)
-Perfect for demonstrations and interactive use:
-
-```
-▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-▓                 T-AGENT v0.5.0 STARTING                  ▓ 
-▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-[-] [12:34:56] INIT: Goal: Translate hello world to Chinese
-[#] [12:34:57] PLAN: Generating strategic plan...
-[>] [12:34:58] EXECUTE: Using LLM fallback for translation
-[+] [12:34:59] SUCCESS: Translation completed!
-★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-★                     MISSION COMPLETE                     ★ 
-★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★
-```
-
-### Institutional UI (Server-focused)
-Clean, structured logging for production environments:
-
-```
-2025-07-14 12:34:56 [INFO ] SYSTEM: Banner: T-AGENT v0.5.0 STARTING
-2025-07-14 12:34:56 [INFO ] AGENT: INIT: Goal: Translate hello world to Chinese
-2025-07-14 12:34:57 [INFO ] PLANNER: Plan: Generate strategic plan for translation
-2025-07-14 12:34:58 [INFO ] EXECUTE: Using LLM fallback for translation
-2025-07-14 12:34:59 [INFO ] AGENT: SUCCESS: Translation completed!
-```
-
-Choose the style that fits your environment:
+### Planning Cycles
 
 ```python
-from tagent.config import TAgentConfig
-from tagent.ui.factory import UIStyle
-
-# For development/demos
-config = TAgentConfig(ui_style=UIStyle.ANIMATED)
-
-# For production/servers
-config = TAgentConfig(ui_style=UIStyle.INSTITUTIONAL)
-```
-
-## Architecture Overview
-
-```
-TAgent Framework
-├── 🎯 State Machine Controller
-│   ├── Deterministic action flow
-│   ├── Loop prevention
-│   └── Transition validation
-├── 🤖 Agent Core
-│   ├── Redux-inspired store
-│   ├── LLM decision making
-│   ├── Tool execution
-│   └── Intelligent fallbacks
-├── 🛠️ Tool System
-│   ├── Pure function interface
-│   ├── Dynamic discovery
-│   └── Type-safe signatures
-└── 📊 Structured Outputs
-    ├── Pydantic validation
-    ├── JSON schema enforcement
-    └── Type-safe results
-```
-
-## Advanced Configuration
-
-### Model Configuration
-```python
-from tagent.config import TAgentConfig
-from tagent.model_config import AgentModelConfig
-
-# Advanced model configuration with step-specific models
-model_config = AgentModelConfig(
-    tagent_model="gpt-4o",  # Global fallback
-    tagent_planner_model="gpt-4o-mini",  # Planning tasks
-    tagent_executor_model="gpt-3.5-turbo",  # Tool execution
-    api_key="your-api-key"
-)
-
-config = TAgentConfig(
-    model=model_config,  # Pass advanced model config
-    max_iterations=20,
-    verbose=True,
-    ui_style=UIStyle.INSTITUTIONAL
-)
-
+# Intelligent re-planning when tasks fail
 result = run_agent(
     goal="Complex multi-step task",
-    config=config
+    tools=tools,
+    model="gpt-4",
+    max_iterations=20,
+    # Will re-plan up to 5 times if needed
 )
 ```
 
-### Configuration File Support
+### Memory Management
+
 ```python
-from tagent.config import load_config
+# Simple context system automatically manages memory
+result = run_agent(
+    goal="Learn from previous iterations",
+    tools=tools,
+    model="gpt-4"
+    # Memories are automatically stored and retrieved using keyword search
+)
 
-# Load from JSON file
-config = load_config("config.json")
-
-# Load from YAML file (requires PyYAML)
-config = load_config("config.yaml")
-
-# Load with environment override
-config = load_config("config.json", env_override=True)
+# Access memory summary
+print(f"Memories stored: {result.memory_summary}")
 ```
 
-### Configuration Merging
+## 🔍 Debugging and Monitoring
+
+### Verbose Mode
+
 ```python
-from tagent.config import TAgentConfig
-
-# Base configuration
-base_config = TAgentConfig(
-    model="gpt-4o-mini",
-    max_iterations=10
+result = run_agent(
+    goal="Your goal",
+    model="gpt-4",
+    verbose=True  # Shows detailed execution logs
 )
-
-# Override specific settings
-prod_config = TAgentConfig(
-    ui_style=UIStyle.INSTITUTIONAL,
-    verbose=False
-)
-
-# Merge configurations
-final_config = base_config.merge(prod_config)
 ```
 
-### Environment Variables
-```bash
-export TAGENT_MODEL="gpt-4o-mini"
-export TAGENT_PLANNER_MODEL="gpt-4o"
-export TAGENT_MAX_ITERATIONS=20
-export TAGENT_VERBOSE=true
-export TAGENT_UI_STYLE=institutional
-export TAGENT_API_KEY="your-key"
+### Execution Statistics
+
+```python
+# Get detailed execution info
+print(f"Planning cycles: {result.planning_cycles}")
+print(f"Total tasks: {result.total_tasks}")
+print(f"Completed: {result.completed_tasks}")
+print(f"Failed: {result.failed_tasks}")
+print(f"Iterations: {result.iterations_used}")
 ```
 
-## Try It Yourself
+### State Inspection
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/tagent2
-cd tagent2
-
-# Install in development mode
-pip install -e .
-
-# Try without tools (uses LLM knowledge only)
-python -m tagent "What is the capital of France?" --model gpt-4o-mini
-
-# Try with tools from an example
-python -m tagent "Get recent TabNews articles" --search-dir ./examples/tab_news_analyzer
-
-# Run the TabNews example programmatically
-python examples/tab_news_analyzer/tabnews_code_example.py
+```python
+# Access full execution state
+print(f"State summary: {result.state_summary}")
+print(f"Memory summary: {result.memory_summary}")
 ```
 
-## Examples Directory
+## 🛡️ Error Handling
 
-Check out the `/examples` folder for real implementations:
+TAgent includes robust error handling:
 
-- **`tab_news_analyzer/`** - Extract and translate TabNews articles
-- **`travel_planning/`** - Multi-step travel planning agent
-- **`simple_qa/`** - Direct question answering without tools
+- **Tool Failures**: Automatic retry with exponential backoff
+- **LLM Failures**: Fallback strategies and graceful degradation
+- **Network Issues**: Timeout handling and retry logic
+- **Planning Failures**: Re-planning with failure context
+- **Memory Issues**: Automatic memory cleanup and optimization
 
-Each example shows different patterns and use cases.
+## 🎯 Best Practices
 
-## What's New in v0.5.0
+### 1. Tool Design
 
-### Configuration System
-- ✅ Centralized configuration via `TAgentConfig`
-- ✅ Environment variable support
-- ✅ Configuration file support (JSON/YAML)
-- ✅ Configuration merging and inheritance
+```python
+# ✅ Good tool design
+def good_tool(state, args):
+    """Clear description of what the tool does."""
+    try:
+        # Validate inputs
+        required_param = args.get("required_param")
+        if not required_param:
+            return ("error", {"message": "required_param is missing"})
+        
+        # Do work
+        result = do_work(required_param)
+        
+        # Return tuple
+        return ("result_key", result)
+    except Exception as e:
+        return ("error", {"message": str(e)})
 
-### UI System Redesign
-- ✅ Modular UI architecture with strategy pattern
-- ✅ **Animated UI**: Matrix-style terminal effects
-- ✅ **Institutional UI**: Clean structured logging
-- ✅ Runtime UI style switching
+# ❌ Avoid this
+def bad_tool(state, args):
+    # No documentation, no error handling
+    return process_data(args["data"])
+```
 
-### Developer Experience
-- ✅ Better error handling and diagnostics
-- ✅ Improved debugging capabilities
-- ✅ Type-safe configuration system
-- ✅ Comprehensive documentation
+### 2. Goal Definition
 
-## Roadmap
+```python
+# ✅ Clear, specific goals
+goal = "Extract the latest 5 articles from TechCrunch, summarize each, and translate summaries to Spanish"
 
-- [ ] CrewAI/LangChain/MCP tool adapters
-- [ ] Persistent memory system
-- [ ] Default tool library (web search, file ops)
-- [ ] Optional web interface
-- [ ] Multi-agent orchestration
-- [ ] Tool marketplace/registry
+# ❌ Vague goals
+goal = "Do something with articles"
+```
 
-## Contributing
+### 3. Output Formats
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Make your changes
-4. Add tests if applicable
-5. Commit: `git commit -m "Add amazing feature"`
-6. Push: `git push origin feature/amazing-feature`
-7. Open a Pull Request
+```python
+# ✅ Well-defined output structure
+class ArticleReport(BaseModel):
+    title: str = Field(description="Article title")
+    summary: str = Field(description="Brief summary")
+    url: str = Field(description="Article URL")
+    published_date: str = Field(description="Publication date")
 
-## License
+# ❌ Generic output
+class GenericOutput(BaseModel):
+    data: Any
+```
+
+## 🤝 Contributing
+
+We welcome contributions! See our [contributing guide](CONTRIBUTING.md) for details.
+
+## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## Conclusion
+## 🙏 Acknowledgments
 
-TAgent won't solve all the world's problems, but if you want to create agents without headaches and with code you can understand 6 months later, it might be worth a look.
-
-The framework is small (<2000 lines), focused, and each component has a clear responsibility. Sometimes simple is better.
+Built with ❤️ using:
+- [LiteLLM](https://github.com/BerriAI/litellm) for LLM integration
+- [Pydantic](https://pydantic.dev/) for data validation
+- [Rich](https://github.com/Textualize/rich) for beautiful terminal output
 
 ---
 
-**Repository:** https://github.com/yourusername/tagent2  
-**License:** MIT  
-**Version:** 0.5.0
-
-*If you made it this far and found it interesting, leave a star on GitHub. If you didn't like it, open an issue and complain - feedback is always welcome.*
+**TAgent v0.5.6** - Making AI agents simple again! 🚀

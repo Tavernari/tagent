@@ -1,0 +1,44 @@
+name: "simple_research_workflow"
+description: "A simple research workflow for market analysis"
+version: "1.0"
+
+initial_context:
+  topic: "{{ input.topic }}"
+  target_audience: "{{ input.target_audience }}"
+
+groups:
+  - name: "primary_research"
+    execution_mode: "parallel"
+    timeout: 200
+    summary_prompt: "Summarize the key findings from the research about {{ topic }}."
+    agents:
+      - name: "web_researcher"
+        tool_config:
+          tools: ["web_search"]
+          prompt: "Research the topic '{{ topic }}' and provide comprehensive information about market trends, key players, and recent developments."
+          model: "gpt-4-turbo"
+          temperature: 0.3
+
+      - name: "competitor_analyzer"
+        tool_config:
+          tools: ["web_search"]
+          prompt: "Analyze competitors in the {{ topic }} market. Focus on their strategies, strengths, and market position."
+          model: "gpt-4-turbo"
+          temperature: 0.4
+
+  - name: "content_creation"
+    execution_mode: "sequential"
+    timeout: 150
+    agents:
+      - name: "content_writer"
+        tool_config:
+          tools: ["text_generation"]
+          prompt: "Based on the research findings, create engaging content about {{ topic }} for {{ target_audience }}. Use the research data: {{ summaries.primary_research }}"
+          model: "gpt-4-turbo"
+          temperature: 0.7
+
+final_summary_prompt: "Generate a final report with research insights and content recommendations for {{ topic }}."
+
+metadata:
+  type: "research"
+  complexity: "simple"

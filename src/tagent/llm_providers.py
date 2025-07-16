@@ -6,16 +6,19 @@ from typing import Dict, Optional, List, Any
 from abc import ABC, abstractmethod
 import json
 import litellm
+from litellm import completion_cost
 
-from .models import StructuredResponse
+from .models import StructuredResponse, TokenUsage, TokenStats
+from .token_utils import get_token_count
 
 
 class LLMResponse:
     """Wrapper for LLM response data."""
     
-    def __init__(self, content: str, model: str = "unknown"):
+    def __init__(self, content: str, model: str = "unknown", token_usage: Optional[TokenUsage] = None):
         self.content = content
         self.model = model
+        self.token_usage = token_usage
 
 
 class LLMAdapter(ABC):
@@ -63,7 +66,86 @@ class LiteLLMAdapter(LLMAdapter):
                 **kwargs
             )
             content = response.choices[0].message.content.strip()
-            return LLMResponse(content=content, model=model)
+            
+            # Extract token usage from response
+            token_usage = None
+            if hasattr(response, 'usage') and response.usage:
+                # Calculate cost using LiteLLM's completion_cost function
+                try:
+                    cost = completion_cost(completion_response=response)
+                    cost_value = float(cost) if cost is not None else 0.0
+                    
+                    # Debug cost calculation
+                    if verbose:
+                        print(f"[DEBUG] Cost calculation for {model}: {cost} -> {cost_value}")
+                        if cost_value == 0.0:
+                            print(f"[DEBUG] Zero cost detected - model may be free or pricing unavailable")
+                            
+                except Exception as e:
+                    # If cost calculation fails, try to estimate based on token count and model
+                    cost_value = 0.0
+                    if verbose:
+                        print(f"[DEBUG] Cost calculation failed: {e}")
+                        
+                # If still zero, try fallback estimation for known models
+                if cost_value == 0.0:
+                    input_tokens = getattr(response.usage, 'prompt_tokens', 0)
+                    output_tokens = getattr(response.usage, 'completion_tokens', 0)
+                    
+                    # Enhanced fallback pricing based on model patterns
+                    model_lower = model.lower()
+                    
+                    if "o4" in model_lower or "o1" in model_lower:
+                        # O-series models are typically expensive
+                        cost_value = (input_tokens * 0.05 / 1000) + (output_tokens * 0.15 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using O-series fallback pricing: ${cost_value:.6f}")
+                    elif "gpt-4" in model_lower:
+                        # GPT-4 pricing
+                        cost_value = (input_tokens * 0.03 / 1000) + (output_tokens * 0.06 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using GPT-4 fallback pricing: ${cost_value:.6f}")
+                    elif "gpt-3.5" in model_lower:
+                        # GPT-3.5 pricing
+                        cost_value = (input_tokens * 0.001 / 1000) + (output_tokens * 0.002 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using GPT-3.5 fallback pricing: ${cost_value:.6f}")
+                    elif "claude" in model_lower:
+                        # Claude models pricing
+                        if "opus" in model_lower:
+                            cost_value = (input_tokens * 0.015 / 1000) + (output_tokens * 0.075 / 1000)
+                        elif "sonnet" in model_lower:
+                            cost_value = (input_tokens * 0.003 / 1000) + (output_tokens * 0.015 / 1000)
+                        else:
+                            cost_value = (input_tokens * 0.0008 / 1000) + (output_tokens * 0.0024 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using Claude fallback pricing: ${cost_value:.6f}")
+                    elif "gemini" in model_lower:
+                        # Gemini pricing (often free/very cheap)
+                        cost_value = (input_tokens * 0.0001 / 1000) + (output_tokens * 0.0002 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using Gemini fallback pricing: ${cost_value:.6f}")
+                    elif "openrouter" in model_lower:
+                        # Generic OpenRouter pricing estimate
+                        cost_value = (input_tokens * 0.002 / 1000) + (output_tokens * 0.006 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using OpenRouter generic fallback pricing: ${cost_value:.6f}")
+                    elif verbose and cost_value == 0.0:
+                        print(f"[DEBUG] No pricing data available for model: {model}")
+                        # Generic fallback for unknown models
+                        cost_value = (input_tokens * 0.001 / 1000) + (output_tokens * 0.003 / 1000)
+                        if verbose:
+                            print(f"[DEBUG] Using generic fallback pricing: ${cost_value:.6f}")
+                
+                token_usage = TokenUsage(
+                    input_tokens=getattr(response.usage, 'prompt_tokens', 0),
+                    output_tokens=getattr(response.usage, 'completion_tokens', 0),
+                    total_tokens=getattr(response.usage, 'total_tokens', 0),
+                    model=model,
+                    cost=cost_value
+                )
+            
+            return LLMResponse(content=content, model=model, token_usage=token_usage)
         except Exception as e:
             raise ValueError(f"LiteLLM completion failed: {str(e)}")
     
@@ -96,11 +178,20 @@ class MockLLMAdapter(LLMAdapter):
         if self.call_count < len(self.responses):
             response = self.responses[self.call_count]
             self.call_count += 1
-            return LLMResponse(content=response, model=model)
         else:
             # Default response if no more responses configured
-            default_response = '{"action": "evaluate", "params": {"achieved": true}, "reasoning": "Mock response"}'
-            return LLMResponse(content=default_response, model=model)
+            response = '{"action": "evaluate", "params": {"achieved": true}, "reasoning": "Mock response"}'
+        
+        # Mock token usage for testing
+        mock_usage = TokenUsage(
+            input_tokens=50,  # Mock values
+            output_tokens=30,
+            total_tokens=80,
+            model=model,
+            cost=0.001  # Mock cost
+        )
+        
+        return LLMResponse(content=response, model=model, token_usage=mock_usage)
     
     def get_supported_params(self, model: str) -> List[str]:
         """Return mock supported parameters."""
@@ -260,7 +351,7 @@ def validate_json_response_size(response_text: str, max_size: int = 10000) -> st
                         "target_language": "chinese" if tool == "translate" else ""
                     }
                 },
-                "reasoning": f"Response truncated from {len(response_text)} chars to prevent JSON parsing issues"
+                "reasoning": f"Response truncated from {get_token_count(response_text)} tokens to prevent JSON parsing issues"
             }
             
             import json
@@ -357,7 +448,15 @@ def query_llm_with_adapter(
             validated_content = validate_json_response_size(response.content)
             
             # Parse the response
-            return parse_structured_response(validated_content, verbose)
+            structured_response = parse_structured_response(validated_content, verbose)
+            
+            # Add token usage statistics if available
+            if response.token_usage:
+                stats = TokenStats()
+                stats.add_usage(response.token_usage)
+                structured_response.stats = stats
+            
+            return structured_response
 
         except Exception as e:
             if verbose:
