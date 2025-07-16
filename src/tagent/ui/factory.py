@@ -48,8 +48,6 @@ class UIFactory:
             "modern": UIStyle.MODERN,
             "cli": UIStyle.MODERN,
             "vscode": UIStyle.MODERN,
-            "animated": UIStyle.MODERN,  # Legacy support
-            "matrix": UIStyle.MODERN,  # Legacy support
             "institutional": UIStyle.INSTITUTIONAL,
             "server": UIStyle.INSTITUTIONAL,
             "log": UIStyle.INSTITUTIONAL,

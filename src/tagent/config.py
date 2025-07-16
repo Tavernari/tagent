@@ -34,7 +34,7 @@ class TAgentConfig:
     api_key: Optional[str] = None
     
     # UI configuration
-    ui_style: UIStyle = UIStyle.ANIMATED
+    ui_style: UIStyle = UIStyle.MODERN
     
     # Tool configuration
     tools: Optional[Dict[str, Callable]] = None
@@ -83,14 +83,13 @@ class TAgentConfig:
         # UI configuration
         if ui_style := os.getenv("TAGENT_UI_STYLE"):
             ui_style_map = {
-                "animated": UIStyle.ANIMATED,
+                "modern": UIStyle.MODERN,
                 "institutional": UIStyle.INSTITUTIONAL,
-                "matrix": UIStyle.ANIMATED,
                 "server": UIStyle.INSTITUTIONAL,
                 "log": UIStyle.INSTITUTIONAL,
                 "logging": UIStyle.INSTITUTIONAL,
             }
-            config.ui_style = ui_style_map.get(ui_style.lower(), UIStyle.ANIMATED)
+            config.ui_style = ui_style_map.get(ui_style.lower(), UIStyle.MODERN)
         
         return config
     
@@ -191,14 +190,13 @@ class TAgentConfig:
         # Ensure UI style is UIStyle enum
         if isinstance(self.ui_style, str):
             ui_style_map = {
-                "animated": UIStyle.ANIMATED,
+                "modern": UIStyle.MODERN,
                 "institutional": UIStyle.INSTITUTIONAL,
-                "matrix": UIStyle.ANIMATED,
                 "server": UIStyle.INSTITUTIONAL,
                 "log": UIStyle.INSTITUTIONAL,
                 "logging": UIStyle.INSTITUTIONAL,
             }
-            self.ui_style = ui_style_map.get(self.ui_style.lower(), UIStyle.ANIMATED)
+            self.ui_style = ui_style_map.get(self.ui_style.lower(), UIStyle.MODERN)
 
 
 def load_config(
