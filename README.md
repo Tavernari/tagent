@@ -2,7 +2,7 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.5.6-green.svg)](https://github.com/yourusername/tagent2)
+[![Version](https://img.shields.io/badge/version-0.6.0-green.svg)](https://github.com/yourusername/tagent2)
 
 > **A flexible, task-based framework for creating powerful AI agents with minimal code. No course required.**
 
@@ -75,7 +75,7 @@ print(f"Final output: {result.final_output}")
 
 ## 🏗️ Task-Based Architecture
 
-TAgent v0.5.6 introduces a revolutionary **task-based approach** that makes AI agent behavior predictable and reliable:
+TAgent v0.6.0 introduces a revolutionary **task-based approach** that makes AI agent behavior predictable and reliable:
 
 ### The Flow
 
@@ -480,4 +480,4 @@ Built with ❤️ using:
 
 ---
 
-**TAgent v0.5.6** - Making AI agents simple again! 🚀
+**TAgent v0.6.0** - Making AI agents simple again! 🚀
