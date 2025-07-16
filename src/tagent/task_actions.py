@@ -36,14 +36,21 @@ def _get_value_from_path(data: Any, path: str) -> Any:
                 else:
                     current_data = getattr(current_data, key, None)
             except (AttributeError, TypeError):
-                return None # Return None if attribute/key does not exist
+                return None  # Return None if attribute/key does not exist
             
     return current_data
 
 def _resolve_dynamic_args(args: Dict[str, Any], state_machine: TaskBasedStateMachine) -> Dict[str, Any]:
     """
-    Resolves dynamic arguments in the format `{{tasks.ID.output...}}`
-    using regex substitution and path evaluation.
+    Resolves dynamic arguments in template format using regex substitution and path evaluation.
+    
+    Supports both formats:
+    - {{tasks.INDEX.output...}} - preferred format (0-based indexing)
+    - {{task_ID.output...}} - legacy format (1-based indexing)
+    
+    Examples:
+    - {{tasks.0.output.results.0.url}} - access first result's URL from task 1
+    - {{task_1.output.results.0.url}} - legacy format for the same
     """
     resolved_args = {}
 
@@ -51,19 +58,41 @@ def _resolve_dynamic_args(args: Dict[str, Any], state_machine: TaskBasedStateMac
         """
         This function is called for each placeholder found by re.sub.
         It looks up the task result and returns the appropriate value.
+        
+        Supports both formats:
+        - {{tasks.INDEX.output...}} - correct format (0-based indexing)
+        - {{task_ID.output...}} - legacy format (1-based indexing)
         """
         placeholder = match.group(0)
-        expression = match.group(1).strip()  # e.g., "tasks.0.output.articles[0].url"
+        expression = match.group(1).strip()  # e.g., "tasks.0.output.articles[0].url" or "task_1.output.articles[0].url"
 
-        # Expression should be like "tasks.INDEX.output.REST_OF_PATH"
         parts = expression.split('.')
-        if len(parts) < 3 or parts[0] != 'tasks' or parts[2] != 'output':
+        if len(parts) < 3 or parts[2] != 'output':
             return placeholder
 
         try:
-            task_index = int(parts[1])
-            # The state machine uses 1-based IDs like "task_1"
-            task_id = f"task_{task_index + 1}"
+            task_id = None
+            value_path = None
+            
+            # Handle both template formats
+            if parts[0] == 'tasks':
+                # Correct format: {{tasks.INDEX.output...}}
+                if len(parts) < 3:
+                    return placeholder
+                task_index = int(parts[1])
+                # The state machine uses 1-based IDs like "task_1"
+                task_id = f"task_{task_index + 1}"
+                value_path = '.'.join(parts[3:])
+                
+            elif parts[0].startswith('task_'):
+                # Legacy format: {{task_ID.output...}}
+                if len(parts) < 3:
+                    return placeholder
+                task_id = parts[0]  # e.g., "task_1"
+                value_path = '.'.join(parts[2:])
+                
+            else:
+                return placeholder
             
             source_task = next((t for t in state_machine.tasks if t.id == task_id), None)
 
@@ -73,9 +102,8 @@ def _resolve_dynamic_args(args: Dict[str, Any], state_machine: TaskBasedStateMac
             # result is a tuple like ('key', data)
             result_data = source_task.result[1]
             
-            # The rest of the path to resolve
-            value_path = '.'.join(parts[3:])
-            if not value_path:  # Direct reference like {{tasks.1.output}}
+            # Handle direct reference like {{tasks.1.output}} or {{task_1.output}}
+            if not value_path:
                 if isinstance(result_data, dict) and 'response' in result_data:
                     return str(result_data['response'])
                 return str(result_data)

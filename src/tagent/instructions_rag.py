@@ -55,7 +55,7 @@ class InstructionsRAG(TFIDFRagContextManager):
             ),
             RagDocument(
                 id="plan_use_output",
-                content="To use the output of a previous task as an argument for a subsequent task, you MUST use the `{{task_ID.output}}` placeholder. For example, if `task_2` loads the content of an article, and `task_3` needs to summarize it, the `text` argument for `task_3` must be `{{task_2.output}}`.",
+                content="To use the output of a previous task as an argument for a subsequent task, you MUST use the `{{tasks.INDEX.output}}` placeholder format. For example, if task 1 loads the content of an article, and task 2 needs to summarize it, the `text` argument for task 2 must be `{{tasks.0.output}}`. Use 0-based indexing (task 1 = index 0, task 2 = index 1, etc.).",
                 doc_type="instruction",
                 keywords=["plan", "planning", "output", "placeholder", "argument"],
                 metadata={"action": "plan"}
