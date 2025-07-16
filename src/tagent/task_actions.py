@@ -6,17 +6,44 @@ import re
 from typing import Dict, Any, List, Optional, Type
 from .state_machine import TaskBasedStateMachine
 
+
+# Helper to resolve nested data
+def _get_value_from_path(data: Any, path: str) -> Any:
+    """
+    Retrieves a value from a nested structure using a dot-separated path.
+    Handles dictionary keys, object attributes, and list indices.
+    Example path: "articles[0].url"
+    """
+    # This regex splits the path by dots or brackets, capturing the indices
+    keys = re.split(r'\.|\[(\d+)\]', path)
+    # Filter out empty strings that result from the split
+    keys = [k for k in keys if k]
+
+    current_data = data
+    for key in keys:
+        if current_data is None:
+            return None
+            
+        if key.isdigit():  # It's an index for a list
+            try:
+                current_data = current_data[int(key)]
+            except (IndexError, TypeError):
+                return None  # Return None if index is out of bounds or not a list
+        else:  # It's a key for a dict or an attribute for an object
+            try:
+                if isinstance(current_data, dict):
+                    current_data = current_data.get(key)
+                else:
+                    current_data = getattr(current_data, key, None)
+            except (AttributeError, TypeError):
+                return None # Return None if attribute/key does not exist
+            
+    return current_data
+
 def _resolve_dynamic_args(args: Dict[str, Any], state_machine: TaskBasedStateMachine) -> Dict[str, Any]:
     """
-    Resolves dynamic arguments in the format `{{task_ID.output.key}}` or `{{task_ID.output}}`
-    using regex substitution.
-    
-    Args:
-        args: The dictionary of arguments for a tool.
-        state_machine: The state machine instance to access previous task results.
-        
-    Returns:
-        A new dictionary with placeholders replaced by actual values.
+    Resolves dynamic arguments in the format `{{tasks.ID.output...}}`
+    using regex substitution and path evaluation.
     """
     resolved_args = {}
 
@@ -26,46 +53,50 @@ def _resolve_dynamic_args(args: Dict[str, Any], state_machine: TaskBasedStateMac
         It looks up the task result and returns the appropriate value.
         """
         placeholder = match.group(0)
-        task_num_str = match.group(1)
-        output_key = match.group(2)  # This will be None for direct `{{task_ID.output}}`
+        expression = match.group(1).strip()  # e.g., "tasks.0.output.articles[0].url"
+
+        # Expression should be like "tasks.INDEX.output.REST_OF_PATH"
+        parts = expression.split('.')
+        if len(parts) < 3 or parts[0] != 'tasks' or parts[2] != 'output':
+            return placeholder
 
         try:
-            task_num = int(task_num_str)
-            source_task = next((t for t in state_machine.tasks if t.id == f"task_{task_num}"), None)
+            task_index = int(parts[1])
+            # The state machine uses 1-based IDs like "task_1"
+            task_id = f"task_{task_index + 1}"
+            
+            source_task = next((t for t in state_machine.tasks if t.id == task_id), None)
 
             if not source_task or source_task.result is None:
-                return placeholder  # Keep placeholder if task/result not found
+                return placeholder
 
+            # result is a tuple like ('key', data)
             result_data = source_task.result[1]
-
-            if output_key:
-                # Handle `{{task_ID.output.key}}`
-                if isinstance(result_data, dict) and output_key in result_data:
-                    return str(result_data[output_key])
-                if hasattr(result_data, output_key):
-                    return str(getattr(result_data, output_key))
-                return placeholder  # Keep placeholder if key not found
-            else:
-                # Handle `{{task_ID.output}}`
+            
+            # The rest of the path to resolve
+            value_path = '.'.join(parts[3:])
+            if not value_path:  # Direct reference like {{tasks.1.output}}
                 if isinstance(result_data, dict) and 'response' in result_data:
                     return str(result_data['response'])
                 return str(result_data)
 
-        except (ValueError, TypeError, AttributeError):
-            return placeholder # Keep placeholder on any error
+            resolved_value = _get_value_from_path(result_data, value_path)
+
+            return str(resolved_value) if resolved_value is not None else placeholder
+
+        except (ValueError, TypeError, AttributeError, IndexError):
+            return placeholder
 
     for key, value in args.items():
         if isinstance(value, str):
-            # This regex handles both `{{task_ID.output}}` and `{{task_ID.output.key}}`
-            resolved_value = re.sub(r"\{\{task_(\d+)\.output(?:\.(\w+))?\}\}", replacer, value)
-            
-            # If the resolved value is a Pydantic model string representation, it might need to be evaluated
-            # For now, we assume string representation is sufficient for prompts
+            # Regex to find {{...}} placeholders
+            resolved_value = re.sub(r"\{\{(.*?)\}\}", replacer, value)
             resolved_args[key] = resolved_value
         else:
             resolved_args[key] = value
             
     return resolved_args
+
 
 from pydantic import BaseModel, Field
 from .models import MemoryItem, TokenStats, TokenUsage
@@ -231,11 +262,11 @@ def task_based_execute_action(
         return None
 
     tool_name = current_task.tool_name
-    if not tool_name:
-        # This should no longer happen if the planner is forced to select a tool.
-        failure_reason = f"Planning failed to assign a tool for task: '{current_task.description}'"
-        state_machine.fail_current_task(failure_reason)
-        return TaskBasedExecuteResponse(success=False, result=None, reasoning=failure_reason, failure_reason=failure_reason)
+    # If no tool is assigned, fallback to llm_task for general reasoning.
+    if not tool_name or tool_name == "None":
+        tool_name = "llm_task"
+        if verbose:
+            print(f"[TASK_EXECUTE] No tool assigned for task: '{current_task.description}'. Falling back to 'llm_task'.")
 
     if verbose:
         print(f"[TASK_EXECUTE] Executing task: {current_task.description}")

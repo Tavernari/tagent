@@ -1,14 +1,14 @@
-# TAgent - When You're Tired of Unnecessarily Complex Agent Frameworks
+# TAgent: Build Powerful AI Agents, Not Boilerplate
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-0.5.6-green.svg)](https://github.com/yourusername/tagent2)
 
-> **A task-based, minimalist framework for AI agents that actually makes sense**
+> **A flexible, task-based framework for creating powerful AI agents with minimal code. No course required.**
 
-Fed up with bloated frameworks that need 50 dependencies and 200 lines of boilerplate just to make a simple automation? TAgent is a straightforward, task-based approach to building AI agents that solve specific problems without the unnecessary complexity.
+![TAgent in Action](examples/tab_news_analyzer/tabnews_code_example.gif)
 
-![gif](https://vhs.charm.sh/vhs-dujKmiVTP09yg9gOXAbs5.gif)
+Tired of frameworks that require more time learning their abstractions than building your solution? TAgent is designed for developers who want to build powerful, task-oriented AI agents without the unnecessary complexity. Write simple Python functions, and let our intelligent `ToolExecutor` handle the rest.
 
 ## Why TAgent?
 
@@ -92,22 +92,30 @@ Setup   Create    Execute     Check if    Format
 
 ### Key Features
 
-#### 1. **Intelligent Planning**
+#### 1. **Context Engineering with RAG**
+TAgent leverages a powerful **Retrieval-Augmented Generation (RAG)** system to provide the LLM with relevant, just-in-time context. This system dynamically pulls information from three key sources:
+- **Instructions**: High-level guidance on how the agent should behave, plan, and execute tasks.
+- **Tools**: The full documentation of all available tools, including their descriptions, parameters, and examples.
+- **Memories**: Learnings from past actions, including successes, failures, and key data points.
+
+This ensures the agent always has the information it needs to make optimal decisions without overwhelming the context window.
+
+#### 2. **Intelligent Planning**
 - Creates specific, actionable tasks to achieve the goal
 - Considers available tools and previous failures
 - Uses RAG context for better decision making
 
-#### 2. **Robust Execution**
+#### 3. **Robust Execution**
 - Executes tasks one by one with retry logic (3 retries by default)
 - **LLM Fallback**: When tools aren't available, uses LLM knowledge directly
 - Intelligent failure recovery and re-planning
 
-#### 3. **Smart Evaluation**
+#### 4. **Smart Evaluation**
 - Assesses goal achievement after task completion
 - Provides detailed feedback on what's missing
 - Decides whether to retry or proceed to finalization
 
-#### 4. **Comprehensive Finalization**
+#### 5. **Comprehensive Finalization**
 - Creates structured final output based on specified format
 - Includes execution statistics and context
 - Provides clear results for the user
@@ -150,59 +158,56 @@ The current implementation uses simple keyword-based search in memory. For produ
 - Vector databases (Chroma, Pinecone, Weaviate)
 - Semantic similarity search
 
-## 🛠️ Tool System
+## 🛠️ Intelligent Tool System
 
-### Tool Interface
+TAgent features a smart `ToolExecutor` that adapts to your tools, not the other way around. This eliminates boilerplate and allows you to write natural, Pythonic functions.
 
-All tools follow a simple, consistent interface:
+### Flexible Tool Signatures
+
+Instead of forcing a rigid `(state, args)` signature, you can define tools with parameters that make sense for the task. The `ToolExecutor` automatically inspects the function signature and provides the correct arguments.
+
+**Supported Parameter Types:**
+
+1.  **`state: Dict[str, Any]`**: If your tool needs access to the agent's central state, simply add a `state` parameter.
+2.  **Pydantic Models**: For structured, validated inputs, define a Pydantic model and use it as a type hint. The executor will automatically instantiate it from the LLM's arguments.
+3.  **Simple Keyword Arguments**: Any other keyword arguments (e.g., `query: str`, `user_id: int`) will be automatically populated from the LLM's output.
+
+**Example:**
 
 ```python
-def my_tool(state: Dict[str, Any], args: Dict[str, Any]) -> Optional[Tuple[str, Any]]:
-    """
-    Tool description.
+from pydantic import BaseModel, Field
+from typing import Dict, Any
+
+# A Pydantic model for structured arguments
+class UserProfile(BaseModel):
+    user_id: int = Field(description="The user's unique identifier")
+    new_email: str = Field(description="The new email address to set")
+
+# The tool function with a flexible signature
+def update_user_email(state: Dict[str, Any], profile: UserProfile):
+    """Updates a user's email address in the system."""
     
-    Args:
-        state: Current agent state for context
-        args: Tool-specific arguments
-        
-    Returns:
-        Tuple of (key, value) for state update, or None if failed
-    """
-    # Tool logic here
-    return ("result_key", result_value)
+    # Access agent state
+    db_connection = state.get("db_connection")
+    
+    # Use validated Pydantic model
+    print(f"Updating user {profile.user_id} with new email {profile.new_email}")
+    
+    # ... tool logic ...
+    
+    return "update_status", {"success": True, "user_id": profile.user_id}
 ```
 
-### LLM Fallback System
+### Smart Return Values
 
-When tools aren't available, TAgent automatically uses the LLM as a fallback:
+The `ToolExecutor` also handles return values intelligently:
 
-```python
-# No tools? No problem!
-result = run_agent(
-    goal="Translate 'Hello world' to Chinese",
-    model="gpt-4"
-    # No tools defined - will use LLM fallback
-)
-# Still works perfectly! 🎉
-```
+1.  **`(key, value)` Tuple**: Return a tuple to explicitly define the key for the state update.
+2.  **Pydantic Model**: Return a Pydantic model, and the executor will use its class name as the key (e.g., `UserProfile()` becomes `("userprofile", ...)`.
+3.  **Other Types (`str`, `dict`, `list`)**: For any other return type, the key will be inferred from the tool's name (e.g., a tool named `search_web` returns `("search_web_output", ...)`).
+4.  **`None`**: If a tool returns `None`, it's treated as a "fire-and-forget" operation, and no state update occurs.
 
-### Tool Registration
-
-```python
-# Register multiple tools
-tools = {
-    "web_search": search_web_tool,
-    "file_read": read_file_tool,
-    "calculate": math_tool,
-    "translate": translate_tool
-}
-
-result = run_agent(
-    goal="Research AI trends and create a report",
-    tools=tools,
-    model="gpt-4"
-)
-```
+This system makes defining and using tools incredibly intuitive and flexible.
 
 ## 📊 Result Structure
 
@@ -294,7 +299,7 @@ result = run_agent(goal="Your goal", model=config)
 
 ## 🎨 UI Styles
 
-TAgent includes beautiful, retro-inspired UI styles:
+TAgent includes a modern, professional UI style inspired by VSCode:
 
 ```python
 from tagent.ui.factory import UIStyle
@@ -302,12 +307,12 @@ from tagent.ui.factory import UIStyle
 # Choose your style
 result = run_agent(
     goal="Your goal",
-    ui_style=UIStyle.ANIMATED    # Animated progress bars
-    # or UIStyle.INSTITUTIONAL   # Clean, professional look
+    ui_style=UIStyle.MODERN    # The default, modern, professional look
+    # or UIStyle.INSTITUTIONAL   # Clean, logging-focused output
 )
 ```
 
-## 📚 Examples
+## 📚 Example
 
 ### Simple Translation
 
@@ -321,65 +326,6 @@ result = run_agent(
 
 print(f"🎯 RESULT: {result.final_output.result}")
 print(f"📝 SUMMARY: {result.final_output.summary}")
-```
-
-### Web Scraping and Analysis
-
-```python
-from tagent import run_agent
-from pydantic import BaseModel, Field
-
-# Define tools
-def extract_articles(state, args):
-    # Extract articles from RSS
-    return ("articles", articles_list)
-
-def analyze_content(state, args):
-    # Analyze article content
-    return ("analysis", analysis_result)
-
-# Define output format
-class ArticleAnalysis(BaseModel):
-    title: str = Field(description="Article title")
-    summary: str = Field(description="Article summary")
-    sentiment: str = Field(description="Sentiment analysis")
-
-# Run agent
-result = run_agent(
-    goal="Extract latest tech articles and analyze sentiment",
-    tools={
-        "extract_articles": extract_articles,
-        "analyze_content": analyze_content
-    },
-    output_format=ArticleAnalysis,
-    model="gpt-4"
-)
-```
-
-### Complex Research Task
-
-```python
-from tagent import run_agent
-
-# Define research tools
-tools = {
-    "search_web": web_search_tool,
-    "read_pdf": pdf_reader_tool,
-    "analyze_data": data_analysis_tool,
-    "create_chart": visualization_tool
-}
-
-result = run_agent(
-    goal="Research AI market trends for 2024 and create a comprehensive report",
-    tools=tools,
-    model="gpt-4",
-    max_iterations=50,
-    verbose=True
-)
-
-print(f"Research completed: {result.goal_achieved}")
-print(f"Tasks executed: {result.completed_tasks}")
-print(f"Final report: {result.final_output}")
 ```
 
 ## 🚀 Advanced Features
@@ -531,7 +477,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 Built with ❤️ using:
 - [LiteLLM](https://github.com/BerriAI/litellm) for LLM integration
 - [Pydantic](https://pydantic.dev/) for data validation
-- [Rich](https://github.com/Textualize/rich) for beautiful terminal output
 
 ---
 
