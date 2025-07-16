@@ -10,6 +10,7 @@ from litellm import completion_cost
 
 from .models import StructuredResponse, TokenUsage, TokenStats
 from .utils import get_tool_documentation
+from .ui import print_feedback_dimmed
 
 # Enable verbose debug for LLM calls
 litellm.log_raw_request_response = False
@@ -94,60 +95,13 @@ t   he action to be taken, any parameters for that action, and the reasoning
                             print(f"[DEBUG] Zero cost detected - model may be free or pricing unavailable")
                             
                 except Exception as e:
-                    # If cost calculation fails, try to estimate based on token count and model
                     cost_value = 0.0
                     if verbose:
-                        print(f"[DEBUG] Cost calculation failed: {e}")
-                        
-                # If still zero, try fallback estimation for known models
-                if cost_value == 0.0:
-                    input_tokens = getattr(response.usage, 'prompt_tokens', 0)
-                    output_tokens = getattr(response.usage, 'completion_tokens', 0)
-                    
-                    # Enhanced fallback pricing based on model patterns
-                    model_lower = model.lower()
-                    
-                    if "o4" in model_lower or "o1" in model_lower:
-                        # O-series models are typically expensive
-                        cost_value = (input_tokens * 0.05 / 1000) + (output_tokens * 0.15 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using O-series fallback pricing: ${cost_value:.6f}")
-                    elif "gpt-4" in model_lower:
-                        # GPT-4 pricing
-                        cost_value = (input_tokens * 0.03 / 1000) + (output_tokens * 0.06 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using GPT-4 fallback pricing: ${cost_value:.6f}")
-                    elif "gpt-3.5" in model_lower:
-                        # GPT-3.5 pricing
-                        cost_value = (input_tokens * 0.001 / 1000) + (output_tokens * 0.002 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using GPT-3.5 fallback pricing: ${cost_value:.6f}")
-                    elif "claude" in model_lower:
-                        # Claude models pricing
-                        if "opus" in model_lower:
-                            cost_value = (input_tokens * 0.015 / 1000) + (output_tokens * 0.075 / 1000)
-                        elif "sonnet" in model_lower:
-                            cost_value = (input_tokens * 0.003 / 1000) + (output_tokens * 0.015 / 1000)
-                        else:
-                            cost_value = (input_tokens * 0.0008 / 1000) + (output_tokens * 0.0024 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using Claude fallback pricing: ${cost_value:.6f}")
-                    elif "gemini" in model_lower:
-                        # Gemini pricing (often free/very cheap)
-                        cost_value = (input_tokens * 0.0001 / 1000) + (output_tokens * 0.0002 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using Gemini fallback pricing: ${cost_value:.6f}")
-                    elif "openrouter" in model_lower:
-                        # Generic OpenRouter pricing estimate
-                        cost_value = (input_tokens * 0.002 / 1000) + (output_tokens * 0.006 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using OpenRouter generic fallback pricing: ${cost_value:.6f}")
-                    elif verbose and cost_value == 0.0:
-                        print(f"[DEBUG] No pricing data available for model: {model}")
-                        # Generic fallback for unknown models
-                        cost_value = (input_tokens * 0.001 / 1000) + (output_tokens * 0.003 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using generic fallback pricing: ${cost_value:.6f}")
+                        print(f"[DEBUG] Cost calculation failed for model '{model}': {e}")
+                        print_feedback_dimmed(
+                            "WARNING",
+                            f"Cost calculation not available for model '{model}'. See https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json for supported models."
+                        )
                 
                 token_usage = TokenUsage(
                     input_tokens=getattr(response.usage, 'prompt_tokens', 0),
@@ -249,60 +203,13 @@ def query_llm_for_model(
                             print(f"[DEBUG] Zero cost detected - model may be free or pricing unavailable")
                             
                 except Exception as e:
-                    # If cost calculation fails, try to estimate based on token count and model
                     cost_value = 0.0
                     if verbose:
-                        print(f"[DEBUG] Cost calculation failed: {e}")
-                        
-                # If still zero, try fallback estimation for known models
-                if cost_value == 0.0:
-                    input_tokens = getattr(response.usage, 'prompt_tokens', 0)
-                    output_tokens = getattr(response.usage, 'completion_tokens', 0)
-                    
-                    # Enhanced fallback pricing based on model patterns
-                    model_lower = model.lower()
-                    
-                    if "o4" in model_lower or "o1" in model_lower:
-                        # O-series models are typically expensive
-                        cost_value = (input_tokens * 0.05 / 1000) + (output_tokens * 0.15 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using O-series fallback pricing: ${cost_value:.6f}")
-                    elif "gpt-4" in model_lower:
-                        # GPT-4 pricing
-                        cost_value = (input_tokens * 0.03 / 1000) + (output_tokens * 0.06 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using GPT-4 fallback pricing: ${cost_value:.6f}")
-                    elif "gpt-3.5" in model_lower:
-                        # GPT-3.5 pricing
-                        cost_value = (input_tokens * 0.001 / 1000) + (output_tokens * 0.002 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using GPT-3.5 fallback pricing: ${cost_value:.6f}")
-                    elif "claude" in model_lower:
-                        # Claude models pricing
-                        if "opus" in model_lower:
-                            cost_value = (input_tokens * 0.015 / 1000) + (output_tokens * 0.075 / 1000)
-                        elif "sonnet" in model_lower:
-                            cost_value = (input_tokens * 0.003 / 1000) + (output_tokens * 0.015 / 1000)
-                        else:
-                            cost_value = (input_tokens * 0.0008 / 1000) + (output_tokens * 0.0024 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using Claude fallback pricing: ${cost_value:.6f}")
-                    elif "gemini" in model_lower:
-                        # Gemini pricing (often free/very cheap)
-                        cost_value = (input_tokens * 0.0001 / 1000) + (output_tokens * 0.0002 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using Gemini fallback pricing: ${cost_value:.6f}")
-                    elif "openrouter" in model_lower:
-                        # Generic OpenRouter pricing estimate
-                        cost_value = (input_tokens * 0.002 / 1000) + (output_tokens * 0.006 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using OpenRouter generic fallback pricing: ${cost_value:.6f}")
-                    elif verbose and cost_value == 0.0:
-                        print(f"[DEBUG] No pricing data available for model: {model}")
-                        # Generic fallback for unknown models
-                        cost_value = (input_tokens * 0.001 / 1000) + (output_tokens * 0.003 / 1000)
-                        if verbose:
-                            print(f"[DEBUG] Using generic fallback pricing: ${cost_value:.6f}")
+                        print(f"[DEBUG] Cost calculation failed for model '{model}': {e}")
+                        print_feedback_dimmed(
+                            "WARNING",
+                            f"Cost calculation not available for model '{model}'. See https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json for supported models."
+                        )
                 
                 token_usage = TokenUsage(
                     input_tokens=getattr(response.usage, 'prompt_tokens', 0),

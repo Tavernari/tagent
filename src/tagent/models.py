@@ -90,10 +90,11 @@ class TokenStats(BaseModel):
         self.by_model[usage.model] = self.by_model[usage.model] + usage
         self.total = self.total + usage
     
-    def format_dimmed_summary(self) -> str:
+    def format_dimmed_summary(self, model_name: Optional[str] = None) -> str:
         """Format a dimmed summary for logging."""
         cost_str = f"${self.total.cost:.6f}" if self.total.cost > 0 else "$0.000000"
-        return f"↗ {self.total.input_tokens} ↙ {self.total.output_tokens} (Σ {self.total.total_tokens} tokens | {cost_str})"
+        model_str = f" | model: {model_name}" if model_name else ""
+        return f"↗ {self.total.input_tokens} ↙ {self.total.output_tokens} (Σ {self.total.total_tokens} tokens | {cost_str}{model_str})"
 
 
 class MemoryItem(BaseModel):
