@@ -248,11 +248,11 @@ class PipelineScheduler:
             if current_status != StepStatus.PENDING:
                 continue
             
-            # Check if all dependencies are completed
+            # Check if all dependencies are completed or skipped
             dependencies_ready = True
             for dependency in self.dependency_graph.get(step_name, []):
                 dep_status = self.step_status.get(dependency, StepStatus.PENDING)
-                if dep_status != StepStatus.COMPLETED:
+                if dep_status not in [StepStatus.COMPLETED, StepStatus.SKIPPED]:
                     dependencies_ready = False
                     break
             
@@ -280,7 +280,7 @@ class PipelineScheduler:
             blocking_deps = []
             for dependency in self.dependency_graph.get(step_name, []):
                 dep_status = self.step_status.get(dependency, StepStatus.PENDING)
-                if dep_status != StepStatus.COMPLETED:
+                if dep_status not in [StepStatus.COMPLETED, StepStatus.SKIPPED]:
                     blocking_deps.append(dependency)
             
             if blocking_deps:

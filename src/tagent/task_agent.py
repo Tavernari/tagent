@@ -38,7 +38,7 @@ from .models import TokenStats
 OutputType = TypeVar("OutputType", bound=Optional[BaseModel])
 
 
-class TaskBasedAgentResult(Generic[OutputType], BaseModel):
+class TaskBasedAgentResult(BaseModel, Generic[OutputType]):
     """Result from task-based agent execution."""
     
     output: OutputType = None
@@ -65,7 +65,7 @@ def _detect_language(text: str, api_key: Optional[str] = None) -> str:
         response = litellm.completion(
             model="gemini/gemini-pro",
             messages=messages,
-            temperature=0.0,
+            temperature=temperature,
             api_key=api_key
         )
         return response.choices[0].message.content.strip()
@@ -83,7 +83,7 @@ def _translate_text(text: str, target_language: str, api_key: Optional[str] = No
         response = litellm.completion(
             model="gemini/gemini-pro",
             messages=messages,
-            temperature=0.1,
+            temperature=temperature,
             api_key=api_key
         )
         return response.choices[0].message.content.strip()
@@ -101,7 +101,8 @@ def run_task_based_agent(
     api_key: Optional[str] = None,
     max_iterations: int = 20,
     max_planning_cycles: int = 5,
-    verbose: bool = False
+    verbose: bool = False,
+    temperature: float = 0.0
 ) -> TaskBasedAgentResult[OutputType]:
     """
     Run TAgent with task-based execution and retry logic.

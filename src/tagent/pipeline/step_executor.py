@@ -462,7 +462,13 @@ class StepExecutor:
         execution_coro = asyncio.to_thread(
             run_task_based_agent,
             enhanced_goal,
-            config=step_config
+            step_config.tools,
+            output_format=step_config.output_format,
+            model=step_config.model,
+            api_key=step_config.api_key,
+            max_iterations=step_config.max_iterations,
+            verbose=step_config.verbose,
+            temperature=step_config.temperature
         )
         
         result = await self.timeout_manager.execute_with_timeout(

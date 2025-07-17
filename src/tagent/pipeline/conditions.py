@@ -146,7 +146,7 @@ class ConditionEvaluator:
         return value
 
     def _get_nested_value(self, data: Dict[str, Any], key: str) -> Any:
-        """Get value from nested dictionary using dot notation."""
+        """Get value from nested dictionary using dot notation with array indexing support."""
         keys = key.split('.')
         current = data
         for k in keys:
@@ -154,6 +154,13 @@ class ConditionEvaluator:
                 current = current[k]
             elif hasattr(current, k):
                 current = getattr(current, k)
+            elif isinstance(current, list) and k.isdigit():
+                # Handle array indexing for lists
+                index = int(k)
+                if 0 <= index < len(current):
+                    current = current[index]
+                else:
+                    return None
             else:
                 return None
         return current
@@ -244,3 +251,23 @@ class ConditionDSL:
     def equals(left: ConditionValue, right: ConditionValue) -> EqualsCondition:
         """Create an equals condition."""
         return EqualsCondition(left=left, right=right)
+
+    @staticmethod
+    def contains(container: ConditionValue, item: ConditionValue) -> ContainsCondition:
+        """Create a contains condition."""
+        return ContainsCondition(container=container, item=item)
+
+    @staticmethod
+    def less_than(left: ConditionValue, right: ConditionValue) -> LessThanCondition:
+        """Create a less than condition."""
+        return LessThanCondition(left=left, right=right)
+
+    @staticmethod
+    def greater_than(left: ConditionValue, right: ConditionValue) -> GreaterThanCondition:
+        """Create a greater than condition."""
+        return GreaterThanCondition(left=left, right=right)
+
+    @staticmethod
+    def not_equals(left: ConditionValue, right: ConditionValue) -> NotEqualsCondition:
+        """Create a not equals condition."""
+        return NotEqualsCondition(left=left, right=right)

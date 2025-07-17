@@ -455,15 +455,15 @@ class PipelineStateMachine(TaskBasedStateMachine):
         
         return {**base_summary, **pipeline_summary}
     
-    def persist_state(self):
+    async def persist_state(self):
         """Persist current state to memory manager."""
         if self.memory_manager:
-            self.memory_manager.persist_memory(self.pipeline.pipeline_id, self.pipeline_memory)
+            await self.memory_manager.persist_memory(self.pipeline.pipeline_id, self.pipeline_memory)
     
-    def restore_state(self):
+    async def restore_state(self):
         """Restore state from memory manager."""
         if self.memory_manager:
-            restored_memory = self.memory_manager.restore_memory(self.pipeline.pipeline_id)
+            restored_memory = await self.memory_manager.restore_memory(self.pipeline.pipeline_id)
             if restored_memory:
                 self.pipeline_memory = restored_memory
                 
