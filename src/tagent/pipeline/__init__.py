@@ -45,7 +45,7 @@ from .persistence import (
     AuditManager,
     CheckpointNotFoundError,
 )
-from .executor import PipelineExecutor, PipelineExecutorConfig, PipelineValidationError
+from .executor import PipelineExecutor, PipelineExecutorConfig
 from .step_executor import StepExecutor, RetryConfig, TimeoutConfig
 from .communication import (
     PipelineCommunicator, PipelineMessage, PipelineEvent, PipelineInfo,
@@ -77,6 +77,12 @@ from .templates import (
     TemplateNotFoundError,
     COMPANY_RESEARCH_TEMPLATE,
     ECOMMERCE_ANALYSIS_TEMPLATE,
+)
+from .api import (
+    PipelineBuilder,
+    PipelineOptimizer,
+    PipelineSerializer,
+    PipelineValidationError,
 )
 
 __all__ = [
@@ -131,7 +137,6 @@ __all__ = [
     # Execution
     "PipelineExecutor",
     "PipelineExecutorConfig", 
-    "PipelineValidationError",
     "StepExecutor",
     "RetryConfig",
     "TimeoutConfig",
@@ -173,4 +178,9 @@ __all__ = [
     "TemplateNotFoundError",
     "COMPANY_RESEARCH_TEMPLATE",
     "ECOMMERCE_ANALYSIS_TEMPLATE",
+
+    # API
+    "PipelineBuilder",
+    "PipelineOptimizer",
+    "PipelineSerializer",
 ]
