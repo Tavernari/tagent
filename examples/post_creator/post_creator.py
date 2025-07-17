@@ -1,12 +1,15 @@
+#!/usr/bin/env python3
 
+import asyncio
 from typing import Optional, List, Tuple
 from pydantic import BaseModel, Field
 import random
-
-from tagent import run_agent
-from tagent.pipeline import PipelineBuilder, ConditionDSL, ExecutionMode
-
+import os
 from os import path
+
+from tagent.pipeline import PipelineBuilder, ConditionDSL, ExecutionMode
+from tagent.pipeline.executor import PipelineExecutor, PipelineExecutorConfig
+from tagent.config import TAgentConfig
 
 def read_positive_text() -> Tuple[str, str]:
     """Reads the text from the positive_text.md file."""
@@ -48,64 +51,97 @@ def save_post(post: str) -> Tuple[str, str]:
 class BlogPostOutput(BaseModel):
     post: str = Field(description="The full content of the generated blog post, synthesizing the provided texts.")
 
-pipeline = PipelineBuilder(
-    "post_creator_pipeline",
-    "A pipeline to create a post from texts using an LLM for content generation.",
-)
-
-pipeline.step(
-    name="read_positive_texts",
-    goal="Load the positive text",
-    execution_mode=ExecutionMode.CONCURRENT,
-    tools_filter=["read_positive_text"],
-)
-
-pipeline.step(
-    name="read_negative_texts",
-    goal="Load the negative text",
-    execution_mode=ExecutionMode.CONCURRENT,
-    tools_filter=["read_negative_text"],
-)
-
-pipeline.step(
-    name="read_neutral_texts",
-    goal="Load the neutral text",
-    execution_mode=ExecutionMode.CONCURRENT,
-    tools_filter=["read_neutral_text"],
-)
-
-# This step now uses the LLM directly for content creation
-pipeline.step(
-    name="post_creation",
-    goal="Create a comprehensive blog post by synthesizing the 'positive_text', 'negative_text', and 'neutral_text' from the context. The post should present a balanced view on the topic of Context Engineering.",
-    depends_on=["read_positive_texts", "read_negative_texts", "read_neutral_texts"],
-    condition=ConditionDSL.combine_and(
-        ConditionDSL.data_exists("read_positive_texts"),
-        ConditionDSL.data_exists("read_negative_texts"),
-        ConditionDSL.data_exists("read_neutral_texts"),
-    )
+async def main():
+    print("\n🚀 POST CREATOR PIPELINE WITH CONCURRENT UI")
+    print("=" * 50)
     
-)
+    # Create pipeline
+    pipeline = PipelineBuilder(
+        "post_creator_pipeline",
+        "A pipeline to create a post from texts using an LLM for content generation.",
+    )
 
-pipeline.step(
-    name="publish_post",
-    goal="Publish the post by saving the content to a file.",
-    depends_on=["post_creation"],
-    tools_filter=["save_post"],
-    condition=ConditionDSL.data_exists("post_creation")
-)
+    pipeline.step(
+        name="read_positive_texts",
+        goal="Load the positive text from the file",
+        execution_mode=ExecutionMode.CONCURRENT,
+        tools_filter=["read_positive_text"],
+    )
 
-# The 'create_post' tool is removed as it's no longer needed
-agent_response = run_agent(
-    goal_or_pipeline=pipeline.build(),
-    model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-    tools={
-        "read_positive_text": read_positive_text,
-        "read_negative_text": read_negative_text,
-        "read_neutral_text": read_neutral_text,
-        "save_post": save_post,
-    },
-    verbose=True,
-)
+    pipeline.step(
+        name="read_negative_texts",
+        goal="Load the negative text from the file",
+        execution_mode=ExecutionMode.CONCURRENT,
+        tools_filter=["read_negative_text"],
+    )
 
-print(agent_response)
+    pipeline.step(
+        name="read_neutral_texts",
+        goal="Load the neutral text from the file",
+        execution_mode=ExecutionMode.CONCURRENT,
+        tools_filter=["read_neutral_text"],
+    )
+
+    # This step uses the LLM directly for content creation
+    pipeline.step(
+        name="post_creation",
+        goal="Create a comprehensive blog post by synthesizing the 'positive_text', 'negative_text', and 'neutral_text' from the context. The post should present a balanced view on the topic of Context Engineering.",
+        depends_on=["read_positive_texts", "read_negative_texts", "read_neutral_texts"],
+        condition=ConditionDSL.combine_and(
+            ConditionDSL.data_exists("read_positive_texts"),
+            ConditionDSL.data_exists("read_negative_texts"),
+            ConditionDSL.data_exists("read_neutral_texts"),
+        )
+    )
+
+    pipeline.step(
+        name="publish_post",
+        goal="Publish the post by saving the content to a file.",
+        depends_on=["post_creation"],
+        tools_filter=["save_post"],
+        condition=ConditionDSL.data_exists("post_creation")
+    )
+
+    # Configure TAgent
+    config = TAgentConfig(
+        model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
+        tools={
+            "read_positive_text": read_positive_text,
+            "read_negative_text": read_negative_text,
+            "read_neutral_text": read_neutral_text,
+            "save_post": save_post,
+        },
+        verbose=False,
+    )
+
+    # Configure executor with concurrent UI
+    executor_config = PipelineExecutorConfig(
+        max_concurrent_steps=3,
+        enable_persistence=False
+    )
+
+    print("🎯 Starting pipeline execution with concurrent UI...")
+    print("📊 Watch the progress dashboard below:")
+    print()
+
+    # Execute pipeline
+    executor = PipelineExecutor(pipeline.build(), config, executor_config)
+    result = await executor.execute()
+
+    print("\n✅ Pipeline execution completed!")
+    print(f"Success: {result.success}")
+    print(f"Execution time: {result.execution_time:.2f}s")
+    print(f"Steps completed: {result.steps_completed}")
+    print(f"Steps failed: {result.steps_failed}")
+
+    if result.success:
+        print("\n📄 Blog post created successfully!")
+        if os.path.exists("examples/post_creator/final_post.md"):
+            print("📁 Saved to: examples/post_creator/final_post.md")
+        else:
+            print("⚠️  Post file not found")
+
+    return result
+
+if __name__ == "__main__":
+    asyncio.run(main())
