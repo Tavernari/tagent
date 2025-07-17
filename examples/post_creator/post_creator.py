@@ -38,18 +38,27 @@ def read_neutral_text() -> Tuple[str, str]:
     except Exception as e:
         return ("neutral_text", "failed to read neutral text")
 
-def save_post(post: str) -> Tuple[str, str]:
+def save_post(state: dict, args: dict) -> Tuple[str, str]:
     """Saves the generated post to a file."""
     try:
+        # Get the post content from args (will be injected by enhanced tool)
+        post_content = args.get("post", "")
+        
+        if not post_content:
+            return ("post", "failed to save post: no post content provided")
+        
         with open(path.join("examples", "post_creator", "final_post.md"), "w") as f:
-            f.write(post)
+            f.write(post_content)
             return ("post", "post saved successfully")
     except Exception as e:
-        return ("post", "failed to save post")
+        return ("post", f"failed to save post: {str(e)}")
 
 # Define the expected output structure for the LLM-based step
 class BlogPostOutput(BaseModel):
     post: str = Field(description="The full content of the generated blog post, synthesizing the provided texts.")
+
+class TextExtracted(BaseModel):
+    text: str = Field(description="The extracted text from the file.")
 
 async def main():
     print("\n🚀 POST CREATOR PIPELINE WITH CONCURRENT UI")
@@ -60,54 +69,59 @@ async def main():
         name="post_creator_pipeline",
         description="The final goal of this pipeline is to create a blog post.",
     ).step(
-        name="read_positive_texts",
+        name="positive_text_step",
         goal="Load the positive text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
         tools=[
             read_positive_text,
         ],
+        output_schema=TextExtracted,
     ).step(
-        name="read_negative_texts",
+        name="negative_text_step",
         goal="Load the negative text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
         tools=[
             read_negative_text,
         ],
+        output_schema=TextExtracted,
     ).step(
-        name="read_neutral_texts",
+        name="neutral_text_step",
         goal="Load the neutral text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
         tools=[
             read_neutral_text,
         ],
+        output_schema=TextExtracted,
     ).step(
-        name="post_creation",
+        name="post_creation_step",
         goal=(
             "Create a comprehensive blog post by synthesizing the 'positive_text', 'negative_text'"
             ", and 'neutral_text' from the context. The post should present a balanced view on the "
             "topic of Context Engineering."
         ),
-        depends_on=["read_positive_texts", "read_negative_texts", "read_neutral_texts"],
+        depends_on=["positive_text_step", "negative_text_step", "neutral_text_step"],
         condition=ConditionDSL.combine_and(
-            ConditionDSL.data_exists("read_positive_texts"),
-            ConditionDSL.data_exists("read_negative_texts"),
-            ConditionDSL.data_exists("read_neutral_texts"),
+            ConditionDSL.data_exists("positive_text_step"),
+            ConditionDSL.data_exists("negative_text_step"),
+            ConditionDSL.data_exists("neutral_text_step"),
         ),
-        output_schema=BlogPostOutput
+        output_schema=BlogPostOutput,
+        read_data=["positive_text_step.text", "negative_text_step.text", "neutral_text_step.text"],
     ).step(
-        name="publish_post",
-        goal="Publish the post by saving the content to a file.",
-        depends_on=["post_creation"],
+        name="publish_post_step",
+        goal="Publish the post by saving the content from the 'post_creation' step to a file.",
+        depends_on=["post_creation_step"],
         tools=[
             save_post,
         ],
-        condition=ConditionDSL.data_exists("post_creation.post")
+        condition=ConditionDSL.data_exists("post_creation_step"),
+        read_data=["post_creation_step.post"],
     ).build()
 
     # Configure TAgent
     config = TAgentConfig(
         model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-        verbose=False,
+        verbose=True,
     )
 
     # Configure executor with concurrent UI

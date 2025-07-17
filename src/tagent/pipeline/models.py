@@ -47,6 +47,7 @@ class PipelineStep:
     """Individual step in a pipeline."""
     name: str
     goal: str
+    read_data: List[str] = field(default_factory=list)
     constraints: List[str] = field(default_factory=list)
     depends_on: List[str] = field(default_factory=list)
     execution_mode: ExecutionMode = ExecutionMode.SERIAL

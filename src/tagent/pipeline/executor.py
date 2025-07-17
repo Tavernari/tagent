@@ -7,6 +7,8 @@ memory persistence, concurrent step execution, and comprehensive error handling.
 
 import asyncio
 import logging
+import inspect
+from functools import wraps
 from typing import Dict, Any, List, Optional, Union, Callable
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -396,6 +398,52 @@ class PipelineExecutor:
                 # Don't re-raise for individual steps - let the pipeline continue
                 logger.error(f"Step '{step.name}' failed: {e}")
     
+    def _create_enhanced_tool(self, original_tool: Callable, read_data_values: Dict[str, Any]) -> Callable:
+        """Create enhanced tool that automatically injects read_data values as parameters."""
+        
+        # Get original tool signature
+        sig = inspect.signature(original_tool)
+        params = list(sig.parameters.keys())
+        
+        # Create wrapper function
+        @wraps(original_tool)
+        def enhanced_tool(state: dict, args: dict) -> Any:
+            # Start with the original args
+            enhanced_args = dict(args)
+            
+            # Special handling for save_post - inject post content directly
+            if original_tool.__name__ == 'save_post':
+                # Look for post content in read_data_values
+                for data_key, data_value in read_data_values.items():
+                    if 'post' in data_key.lower():
+                        enhanced_args['post'] = data_value
+                        break
+            else:
+                # Generic parameter injection for other tools
+                for param_name in params:
+                    if param_name in ['state', 'args']:
+                        continue  # Skip standard parameters
+                        
+                    # Check if any read_data value should be injected for this parameter
+                    for data_key, data_value in read_data_values.items():
+                        # Try to match parameter name to data key or extract attribute name
+                        if param_name == data_key:
+                            enhanced_args[param_name] = data_value
+                            break
+                        # Handle attribute extraction (e.g., post_creation_step.post -> post)
+                        elif '.' in data_key and param_name == data_key.split('.')[-1]:
+                            enhanced_args[param_name] = data_value
+                            break
+            
+            # Call original tool with enhanced args
+            return original_tool(state, enhanced_args)
+        
+        # Preserve original function name and metadata
+        enhanced_tool.__name__ = original_tool.__name__
+        enhanced_tool.__doc__ = original_tool.__doc__
+        
+        return enhanced_tool
+
     async def _execute_tagent_step(self, step: PipelineStep, context) -> Any:
         """Execute step using TAgent with context injection."""
         # Convert context to format expected by TAgent
@@ -408,9 +456,22 @@ class PipelineExecutor:
         
         # Add dependency context
         if context.dependency_results:
+            
+            results = context.dependency_results
+            if step.read_data:
+                final_results = {}
+                for read_path in step.read_data:
+                    step_name, _, attr_name = read_path.partition('.')
+                    if step_name in results:
+                        if attr_name:
+                            final_results[step_name] = getattr(results[step_name], attr_name, None)
+                        else:
+                            final_results[step_name] = results[step_name]
+                results = final_results
+
             dep_context = "\n".join([
                 f"- {dep_name}: {result}" 
-                for dep_name, result in context.dependency_results.items()
+                for dep_name, result in results.items()
             ])
             step_goal += f"\n\nAvailable data from dependencies:\n{dep_context}"
         
@@ -431,6 +492,14 @@ class PipelineExecutor:
                 tool for tool in combined_tools
                 if tool.__name__ in step.tools_filter
             ]
+        
+        # Create enhanced tools with read_data injection
+        if step.read_data and results:
+            enhanced_tools = []
+            for tool in available_tools:
+                enhanced_tool = self._create_enhanced_tool(tool, results)
+                enhanced_tools.append(enhanced_tool)
+            available_tools = enhanced_tools
         
         # Create step-specific config with fallback to main config
         if step.agent_config:
