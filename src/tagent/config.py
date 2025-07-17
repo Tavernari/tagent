@@ -32,6 +32,7 @@ class TAgentConfig:
     # Model configuration
     model: Optional[Union[str, AgentModelConfig]] = None
     api_key: Optional[str] = None
+    temperature: float = 0.0
     
     # UI configuration
     ui_style: UIStyle = UIStyle.MODERN

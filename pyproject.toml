@@ -36,9 +36,22 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "scikit-learn>=1.0.0",
     "numpy>=1.20.0",
+    "networkx>=2.5.0",
 ]
 
 [project.optional-dependencies]
+pipeline = [
+    "networkx>=2.5.0",
+    "pyyaml>=6.0",
+]
+monitoring = [
+    "psutil>=5.8.0",
+    "prometheus-client>=0.15.0",
+]
+all = [
+    "tagent[pipeline]",
+    "tagent[monitoring]",
+]
 dev = [
     "black>=23.0.0",
     "flake8>=6.0.0",
