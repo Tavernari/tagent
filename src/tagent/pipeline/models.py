@@ -529,3 +529,41 @@ class AuditLog(BaseModel):
     event_name: str = Field(description="Name of the event being logged (e.g., 'state_saved', 'state_loaded')")
     timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp of the event")
     details: Dict[str, Any] = Field(default_factory=dict, description="Log-specific details")
+
+
+class PipelineProgress(BaseModel):
+    """Real-time progress of a pipeline execution."""
+    pipeline_id: str = Field(description="Unique pipeline identifier")
+    total_steps: int = Field(description="Total number of steps in the pipeline")
+    completed_steps: int = Field(default=0, description="Number of completed steps")
+    start_time: datetime = Field(default_factory=datetime.now, description="Start time of the pipeline execution")
+    step_status: Dict[str, str] = Field(default_factory=dict, description="Status of each step")
+
+    def update_step(self, step_name: str, status: str, result: Any = None):
+        self.step_status[step_name] = status
+        if status == StepStatus.COMPLETED.value:
+            self.completed_steps += 1
+
+
+class PipelineMetrics(BaseModel):
+    """Performance metrics for a pipeline execution."""
+    pipeline_id: str = Field(description="Unique pipeline identifier")
+    total_duration: float = Field(description="Total execution duration in seconds")
+    avg_step_duration: float = Field(description="Average duration of a single step")
+    max_step_duration: float = Field(description="Maximum duration of any single step")
+    min_step_duration: float = Field(description="Minimum duration of any single step")
+    error_count: int = Field(description="Total number of errors")
+    steps_completed: int = Field(description="Number of completed steps")
+    resource_usage_summary: Dict[str, Any] = Field(default_factory=dict, description="Summary of resource usage")
+
+
+class FailureReport(BaseModel):
+    """Detailed report of a pipeline failure."""
+    pipeline_id: str = Field(description="Identifier of the failed pipeline")
+    error_type: str = Field(description="Type of the error that caused the failure")
+    error_message: str = Field(description="Error message")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp of the failure")
+    context: Dict[str, Any] = Field(description="Pipeline context at the time of failure")
+    analysis: Dict[str, Any] = Field(description="Automated analysis of the failure")
+    recommendations: List[str] = Field(description="Recommendations to prevent future failures")
+

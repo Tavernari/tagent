@@ -24,6 +24,7 @@ from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
 from .scheduler import PipelineScheduler
 from .persistence import PipelineMemoryManager, PersistenceConfig, StorageBackendType
 from .conditions import ConditionEvaluator
+from .monitoring import PipelineMonitor
 
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,7 @@ class PipelineExecutor:
         self.state_machine = PipelineStateMachine(pipeline, self.memory_manager)
         self.scheduler = PipelineScheduler(pipeline)
         self.condition_evaluator = ConditionEvaluator()
+        self.monitor = PipelineMonitor()
         
         # Execution control
         self.executor_pool = asyncio.Semaphore(self.executor_config.max_concurrent_steps)
@@ -128,6 +130,8 @@ class PipelineExecutor:
         
         print_retro_banner(f"PIPELINE: {self.pipeline.name}", "═", 70)
         print_retro_status("INIT", f"Starting pipeline with {len(self.pipeline.steps)} steps")
+        
+        self.monitor.start_monitoring(self.pipeline.pipeline_id, len(self.pipeline.steps))
         
         try:
             # Validate pipeline before execution
@@ -327,6 +331,7 @@ class PipelineExecutor:
             if not await self._should_execute_step(step):
                 print_retro_status("SKIPPED", f"Step '{step.name}' skipped due to condition")
                 self.state_machine.skip_step_execution(step)
+                self.monitor.update_step_progress(self.pipeline.pipeline_id, step.name, StepStatus.SKIPPED)
                 return
 
             print_retro_step(f"Executing step: {step.name}")
@@ -334,6 +339,7 @@ class PipelineExecutor:
             try:
                 # Mark step as running
                 self.state_machine.start_step_execution(step)
+                self.monitor.update_step_progress(self.pipeline.pipeline_id, step.name, StepStatus.RUNNING)
                 
                 # Prepare step context
                 context = self.state_machine.prepare_step_context(step)
@@ -343,6 +349,7 @@ class PipelineExecutor:
                 
                 # Complete step execution
                 self.state_machine.complete_step_execution(step, result)
+                self.monitor.update_step_progress(self.pipeline.pipeline_id, step.name, StepStatus.COMPLETED, result)
                 
                 # Update statistics
                 execution_time = (datetime.now() - start_time).total_seconds()
@@ -459,6 +466,7 @@ class PipelineExecutor:
         else:
             # Max retries reached
             self.execution_stats["steps_failed"] += 1
+            self.monitor.update_step_progress(self.pipeline.pipeline_id, step.name, StepStatus.FAILED, error_message)
             print_retro_status("FAILED", f"Step '{step.name}' failed permanently: {error_message}")
             logger.error(f"Step '{step.name}' failed permanently: {error_message}")
         

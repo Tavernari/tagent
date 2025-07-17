@@ -25,7 +25,10 @@ from .models import (
     PersistenceManagerSummary,
     Checkpoint,
     ExecutionHistoryEvent,
-    AuditLog
+    AuditLog,
+    PipelineProgress,
+    PipelineMetrics,
+    FailureReport,
 )
 from .scheduler import PipelineScheduler, SchedulingStrategy, SchedulingSummary
 from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
@@ -62,6 +65,12 @@ from .conditions import (
     AndCondition,
     OrCondition,
 )
+from .monitoring import (
+    PipelineMonitor,
+    MetricsCollector,
+    FailureAnalyzer,
+    AlertManager,
+)
 
 __all__ = [
     # Models
@@ -85,6 +94,9 @@ __all__ = [
     "Checkpoint",
     "ExecutionHistoryEvent",
     "AuditLog",
+    "PipelineProgress",
+    "PipelineMetrics",
+    "FailureReport",
     
     # Scheduler
     "PipelineScheduler",
@@ -141,4 +153,10 @@ __all__ = [
     "NotExistsCondition",
     "AndCondition",
     "OrCondition",
+
+    # Monitoring
+    "PipelineMonitor",
+    "MetricsCollector",
+    "FailureAnalyzer",
+    "AlertManager",
 ]
