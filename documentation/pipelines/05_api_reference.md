@@ -10,7 +10,7 @@ The `PipelineBuilder` is the recommended way to construct a `Pipeline` object. I
 
 **Key Methods:**
 
-- **`.step(name, goal, ...)`**: Adds a new step to the pipeline. This is the primary method you will use. It takes numerous optional arguments like `depends_on`, `execution_mode`, `timeout`, and `max_retries`.
+- **`.step(name, goal, ...)`**: Adds a new step to the pipeline. This is the primary method you will use. It takes numerous optional arguments like `depends_on`, `execution_mode`, `timeout`, `max_retries`, and `read_data`.
 - **`.build()`**: Finalizes the pipeline definition, runs validation and optimization, and returns a `Pipeline` object ready to be executed.
 
 **Example Usage:**
@@ -19,6 +19,54 @@ from tagent.pipeline.api import PipelineBuilder
 
 builder = PipelineBuilder(name="MyPipeline")
 pipeline = builder.step(...).step(...).build()
+```
+
+### `.step()` Method Parameters
+
+The `.step()` method accepts the following parameters:
+
+- **`name`** (str): Unique identifier for the step
+- **`goal`** (str): Description of what the step should accomplish
+- **`depends_on`** (List[str], optional): List of step names this step depends on
+- **`execution_mode`** (ExecutionMode, optional): `SERIAL` (default) or `CONCURRENT`
+- **`timeout`** (int, optional): Maximum execution time in seconds
+- **`max_retries`** (int, optional): Number of retry attempts on failure
+- **`read_data`** (List[str], optional): List of data paths to read from previous steps
+- **`tools`** (List[Callable], optional): Step-specific tools to use
+- **`output_schema`** (BaseModel, optional): Pydantic model for structured output
+- **`constraints`** (List[str], optional): Additional constraints for the step
+- **`condition`** (Callable, optional): Condition function for conditional execution
+
+### `read_data` Parameter
+
+The `read_data` parameter enables sophisticated data flow control by allowing steps to read specific outputs from previous steps. This data is automatically injected into tool functions and added to the step's prompt context.
+
+**Supported formats:**
+- `"step_name"` - Read entire step output
+- `"step_name.attribute"` - Read specific attribute from structured output
+- `["step1.result", "step2.data"]` - Read multiple data paths
+
+**Example:**
+```python
+from pydantic import BaseModel, Field
+
+# Define the expected output structure
+class AnalysisOutput(BaseModel):
+    insights: str = Field(description="Key insights from the analysis")
+    summary: str = Field(description="Summary of findings")
+    metadata: dict = Field(description="Additional analysis metadata")
+
+builder.step(
+    name="analyze_data",
+    goal="Analyze user feedback data.",
+    output_schema=AnalysisOutput  # Define structured output with specific fields
+).step(
+    name="generate_report",
+    goal="Generate a comprehensive report based on the analysis.",
+    depends_on=["analyze_data"],
+    read_data=["analyze_data.insights", "analyze_data.summary"],  # Reference defined fields
+    tools=[report_generator]
+)
 ```
 
 ## `PipelineExecutor`

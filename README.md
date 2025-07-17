@@ -21,7 +21,8 @@
 
 -   **🧠 Task-Based Agents**: Predictable, state-driven agents that plan and execute to achieve goals.
 -   **🛠️ Developer-First Tools**: Your Python functions are first-class citizens. No boilerplate required.
--   **🚀 Powerful Pipeline Engine**: Orchestrate complex, multi-step workflows with dependencies and parallelism.
+-   **🚀 Powerful Pipeline Engine**: Orchestrate complex, multi-step workflows with dependencies, parallelism, and advanced data flow control.
+-   **🔗 Smart Data Injection**: Use `read_data` to automatically inject outputs from previous steps as tool parameters, enabling sophisticated prompt enhancement.
 -   **🌐 Model Agnostic**: Compatible with any LLM provider, including OpenAI, Google, Anthropic, and more via LiteLLM.
 -   **🔒 Structured & Reliable**: Enforces structured outputs for predictable, type-safe results using Pydantic.
 -   **🤖 Simple & Scalable**: Start with a few lines of code and grow to production-grade automations.
@@ -84,7 +85,7 @@ This README is just a glimpse of what TAgent can do. For detailed guides, tutori
 
 Our documentation covers:
 -   **Core Agent**: Getting started, creating tools, and configuration.
--   **Pipelines**: Building complex, multi-step workflows with dependencies and parallel execution.
+-   **Pipelines**: Building complex, multi-step workflows with dependencies, parallel execution, and advanced data flow features like `read_data`.
 -   **API References** and more.
 
 ---
