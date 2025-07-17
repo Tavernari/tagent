@@ -2,11 +2,35 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.7.0-green.svg)](https://github.com/yourusername/tagent2)
+[![Version](https://img.shields.io/badge/version-0.7.1-green.svg)](https://github.com/yourusername/tagent2)
 
 **A developer-first framework for crafting everything from simple AI assistants to complex, multi-agent workflows with elegance and ease.**
 
-![TAgent in Action](examples/tab_news_analyzer/tabnews_code_example.gif)
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TAgent Architecture                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  Simple Agent (run_agent)           Multi-Step Pipeline System                  │
+│  ┌─────────────────────┐            ┌─────────────────────────────────────────┐ │
+│  │                     │            │                                         │ │
+│  │   Goal → Agent      │            │    Step 1 → Step 2 → Step 3             │ │
+│  │      ↓              │            │      ↓       ↓       ↓                  │ │
+│  │   [Tools]           │     →      │   [Tools]  [Tools]  [Tools]             │ │
+│  │      ↓              │            │      ↓       ↓       ↓                  │ │
+│  │    Result           │            │   Conditional Execution & Dependencies  │ │
+│  │                     │            │      ↓       ↓       ↓                  │ │
+│  └─────────────────────┘            │   Structured Outputs & State Flow       │ │
+│                                     │                                         │ │
+│  Perfect for:                       │  Perfect for:                           │ │
+│  • Quick tasks                      │  • Complex workflows                    │ │
+│  • Single-step operations           │  • Multi-step processes                 │ │
+│  • Simple automations               │  • Conditional logic                    │ │
+│                                     │  • Parallel execution                   │ │
+│                                     │                                         │ │
+│                                     └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -31,7 +55,9 @@
 
 ## Quick Look
 
-See how easy it is to give an agent a custom tool.
+### Simple Agent Tasks
+
+See how easy it is to create an agent with custom tools for simple tasks.
 
 ```python
 from tagent import run_agent
@@ -49,13 +75,68 @@ def get_stock_price(symbol: str):
     return "stock_price", {"symbol": symbol, "price": "unknown"}
 
 # 3. Run the agent
-result = await run_agent(
+result = run_agent(
     goal=goal,
     tools=[get_stock_price],
     model="gpt-4o-mini"
 )
 
-print(result.output.result)
+print(result.final_output)
+```
+
+### Multi-Step Workflows with Pipelines
+
+For more complex scenarios, use TAgent's Pipeline system to build sophisticated workflows:
+
+```python
+from tagent.pipeline import PipelineBuilder
+from tagent.pipeline.conditions import IsGreaterThan, IsLessThan
+
+from tagent.pipeline.executor import PipelineExecutor, PipelineExecutorConfig
+from tagent.config import TAgentConfig
+
+from pydantic import BaseModel, Field
+
+
+# Define structured outputs
+class SentimentAnalysis(BaseModel):
+    score: float = Field(description="Sentiment score from 0-10")
+    category: str = Field(description="positive, negative, or neutral")
+
+class EmailDraft(BaseModel):
+    subject: str = Field(description="Email subject line")
+    body: str = Field(description="Email body content")
+
+# Build a customer feedback pipeline
+pipeline = PipelineBuilder(
+    name="customer_feedback_pipeline",
+    description="Process customer feedback and respond appropriately"
+).step(
+    name="analyze_sentiment",
+    goal="Analyze the sentiment of customer feedback",
+    output_schema=SentimentAnalysis
+).step(
+    name="send_thank_you",
+    goal="Draft a thank you email for positive feedback",
+    depends_on=["analyze_sentiment"],
+    condition=IsGreaterThan("analyze_sentiment.score", 7.0),
+    output_schema=EmailDraft
+).step(
+    name="escalate_complaint",
+    goal="Create escalation ticket for negative feedback",
+    depends_on=["analyze_sentiment"],
+    condition=IsLessThan("analyze_sentiment.score", 4.0)
+).build()
+
+executor_config = PipelineExecutorConfig(
+    max_concurrent_steps=3,
+    enable_persistence=False
+)
+
+config = TAgentConfig(model="gpt-4o-mini")
+
+executor = PipelineExecutor(pipeline, config, executor_config)
+result = await executor.execute()
 ```
 
 ---

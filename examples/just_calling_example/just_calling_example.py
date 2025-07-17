@@ -2,7 +2,7 @@ from tagent import run_agent
 
 # That's literally all you need to start
 result = run_agent(
-    goal_or_pipeline="Translate 'Hello world' to Chinese",
+    goal="Translate 'Hello world' to Chinese",
     model="openrouter/google/gemini-2.5-flash",
     max_iterations=3,
     verbose=False,
