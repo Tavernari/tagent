@@ -39,6 +39,30 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pipeline = [
+    "networkx>=2.5.0",
+    "pyyaml>=6.0",
+]
+monitoring = [
+    "psutil>=5.8.0",
+    "prometheus-client>=0.15.0",
+]
+persistence = [
+    "sqlalchemy>=1.4.0",
+    "alembic>=1.7.0",
+    "redis>=4.0.0",
+]
+ui = [
+    "streamlit>=1.28.0",
+    "plotly>=5.0.0",
+    "graphviz>=0.20.0",
+]
+all = [
+    "tagent[pipeline]",
+    "tagent[monitoring]",
+    "tagent[persistence]",
+    "tagent[ui]",
+]
 dev = [
     "black>=23.0.0",
     "flake8>=6.0.0",
