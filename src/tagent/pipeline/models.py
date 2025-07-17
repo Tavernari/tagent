@@ -5,7 +5,7 @@ This module contains the foundational data models for pipeline definition and ex
 including pipeline steps, pipeline orchestration, and execution results.
 """
 
-from typing import Dict, Any, List, Optional, Type, Union
+from typing import Dict, Any, List, Optional, Type, Union, TYPE_CHECKING
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field
 
 from ..models import TokenUsage
 from .conditions import AnyCondition
+
+if TYPE_CHECKING:
+    from ..config import TAgentConfig
 
 
 class ExecutionMode(Enum):
@@ -52,6 +55,7 @@ class PipelineStep:
     max_retries: int = 3
     tools_filter: Optional[List[str]] = None
     output_schema: Optional[Type[BaseModel]] = None
+    agent_config: Optional['TAgentConfig'] = None  # Step-specific TAgent configuration
     status: StepStatus = StepStatus.PENDING
     result: Optional[Any] = None
     error_message: Optional[str] = None

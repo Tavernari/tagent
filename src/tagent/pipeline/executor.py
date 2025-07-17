@@ -422,17 +422,31 @@ class PipelineExecutor:
                 if name in step.tools_filter
             }
         
-        # Create step-specific config with reduced verbosity for cleaner pipeline output
-        step_config = TAgentConfig(
-            model=self.agent_config.model,
-            api_key=self.agent_config.api_key,
-            max_iterations=self.agent_config.max_iterations,
-            verbose=False,  # Force verbose=False for cleaner pipeline output
-            tools=available_tools,
-            output_format=step.output_schema or self.agent_config.output_format,
-            ui_style=self.agent_config.ui_style,
-            temperature=self.agent_config.temperature
-        )
+        # Create step-specific config with fallback to main config
+        if step.agent_config:
+            # Use step-specific config as base, with fallback to main config
+            step_config = TAgentConfig(
+                model=step.agent_config.model or self.agent_config.model,
+                api_key=step.agent_config.api_key or self.agent_config.api_key,
+                max_iterations=step.agent_config.max_iterations or self.agent_config.max_iterations,
+                verbose=step.agent_config.verbose if step.agent_config.verbose is not None else False,  # Force verbose=False for cleaner pipeline output
+                tools=available_tools,  # Always use filtered tools from pipeline
+                output_format=step.output_schema or step.agent_config.output_format or self.agent_config.output_format,
+                ui_style=step.agent_config.ui_style or self.agent_config.ui_style,
+                temperature=step.agent_config.temperature if step.agent_config.temperature is not None else self.agent_config.temperature
+            )
+        else:
+            # Use main config as fallback with reduced verbosity for cleaner pipeline output
+            step_config = TAgentConfig(
+                model=self.agent_config.model,
+                api_key=self.agent_config.api_key,
+                max_iterations=self.agent_config.max_iterations,
+                verbose=False,  # Force verbose=False for cleaner pipeline output
+                tools=available_tools,
+                output_format=step.output_schema or self.agent_config.output_format,
+                ui_style=self.agent_config.ui_style,
+                temperature=self.agent_config.temperature
+            )
         
         # Execute with timeout if specified
         if step.timeout:
