@@ -567,3 +567,27 @@ class FailureReport(BaseModel):
     analysis: Dict[str, Any] = Field(description="Automated analysis of the failure")
     recommendations: List[str] = Field(description="Recommendations to prevent future failures")
 
+
+class PipelineTemplate(BaseModel):
+    """A reusable template for creating pipelines."""
+    name: str = Field(description="Unique name for the template")
+    description: str = Field(description="Description of the template's purpose")
+    parameters: Dict[str, Any] = Field(description="Dictionary of parameters the template accepts")
+    pipeline_factory: Any = Field(description="A callable that returns a Pipeline instance")
+
+    def create_pipeline(self, parameters: Dict[str, Any]) -> "Pipeline":
+        """Create a new pipeline instance from the template."""
+        # Basic validation
+        for name, spec in self.parameters.items():
+            if spec.get("required") and name not in parameters:
+                raise ValueError(f"Missing required parameter: {name}")
+        
+        # Fill in defaults
+        filled_params = self.parameters.copy()
+        for name, spec in filled_params.items():
+            if "default" in spec:
+                parameters.setdefault(name, spec["default"])
+
+        return self.pipeline_factory(parameters)
+
+

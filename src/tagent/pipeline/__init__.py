@@ -29,6 +29,7 @@ from .models import (
     PipelineProgress,
     PipelineMetrics,
     FailureReport,
+    PipelineTemplate,
 )
 from .scheduler import PipelineScheduler, SchedulingStrategy, SchedulingSummary
 from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
@@ -71,6 +72,12 @@ from .monitoring import (
     FailureAnalyzer,
     AlertManager,
 )
+from .templates import (
+    PipelineTemplateRegistry,
+    TemplateNotFoundError,
+    COMPANY_RESEARCH_TEMPLATE,
+    ECOMMERCE_ANALYSIS_TEMPLATE,
+)
 
 __all__ = [
     # Models
@@ -97,6 +104,7 @@ __all__ = [
     "PipelineProgress",
     "PipelineMetrics",
     "FailureReport",
+    "PipelineTemplate",
     
     # Scheduler
     "PipelineScheduler",
@@ -159,4 +167,10 @@ __all__ = [
     "MetricsCollector",
     "FailureAnalyzer",
     "AlertManager",
+
+    # Templates
+    "PipelineTemplateRegistry",
+    "TemplateNotFoundError",
+    "COMPANY_RESEARCH_TEMPLATE",
+    "ECOMMERCE_ANALYSIS_TEMPLATE",
 ]
