@@ -65,7 +65,7 @@ class PipelineExecutorConfig:
     pipeline_timeout: Optional[int] = 3600  # 1 hour default
     execution_strategy: ExecutionStrategy = ExecutionStrategy.OPTIMIZED
     enable_communication: bool = True
-    enable_persistence: bool = True
+    enable_persistence: bool = False
     persistence_config: Optional[PersistenceConfig] = None
     retry_failed_steps: bool = True
     max_pipeline_retries: int = 3
@@ -166,7 +166,7 @@ class PipelineExecutor:
     
     async def _validate_pipeline(self):
         """Validate pipeline configuration and dependencies."""
-        print_retro_step("Validating pipeline configuration...")
+        print_retro_step(0, "VALIDATE", "Validating pipeline configuration")
         
         # Basic pipeline validation
         validation_errors = self.pipeline.validate()
@@ -191,11 +191,11 @@ class PipelineExecutor:
     
     async def _initialize_pipeline_state(self):
         """Initialize or restore pipeline state from persistence."""
-        print_retro_step("Initializing pipeline state...")
+        print_retro_step(0, "INIT", "Initializing pipeline state")
         
         # Try to restore state if persistence is enabled
         if self.memory_manager:
-            restored = self.state_machine.restore_state()
+            restored = await self.state_machine.restore_state()
             if restored:
                 print_retro_status("RESTORED", "Pipeline state restored from persistence")
                 logger.info(f"Pipeline state restored for '{self.pipeline.pipeline_id}'")
@@ -211,7 +211,7 @@ class PipelineExecutor:
     
     async def _execute_pipeline_loop(self) -> bool:
         """Main pipeline execution loop with dependency resolution."""
-        print_retro_step("Starting pipeline execution loop...")
+        print_retro_step(0, "EXECUTE", "Starting pipeline execution loop")
         
         max_iterations = 1000  # Prevent infinite loops
         iteration = 0
@@ -297,16 +297,19 @@ class PipelineExecutor:
     async def _build_condition_context(self) -> Dict[str, Any]:
         """Build context for condition evaluation."""
         context = {}
+        
+        # Add step objects to context
         for step in self.pipeline.steps:
-            context[step.name] = step
+            context[step.name] = {"step": step}
+        
+        # Add shared context
         context["shared"] = self.pipeline.shared_context
-        # You can add more context from pipeline_memory if needed
-        # For example, raw step results
+        
+        # Add step results from pipeline memory
         for step_name, mem_entry in self.state_machine.pipeline_memory.step_results.items():
             if step_name not in context:
                 context[step_name] = {}
-            # Make sure not to overwrite the step object
-            context[step_name].result = mem_entry.data
+            context[step_name]["result"] = mem_entry.data
 
         return context
 
@@ -329,12 +332,16 @@ class PipelineExecutor:
 
             # Check pre-execution condition
             if not await self._should_execute_step(step):
+                print_retro_banner(f"STEP: {step.name}", "─", 50)
                 print_retro_status("SKIPPED", f"Step '{step.name}' skipped due to condition")
+                print_retro_banner(f"END: {step.name}", "─", 50)
                 self.state_machine.skip_step_execution(step)
                 self.monitor.update_step_progress(self.pipeline.pipeline_id, step.name, StepStatus.SKIPPED)
                 return
 
-            print_retro_step(f"Executing step: {step.name}")
+            # Add clear step start boundary
+            print_retro_banner(f"STEP: {step.name}", "─", 50)
+            print_retro_step(1, "EXECUTE", f"Executing step: {step.name}")
             
             try:
                 # Mark step as running
@@ -344,7 +351,7 @@ class PipelineExecutor:
                 # Prepare step context
                 context = self.state_machine.prepare_step_context(step)
                 
-                # Execute step using TAgent
+                # Execute step using TAgent with reduced verbosity
                 result = await self._execute_tagent_step(step, context)
                 
                 # Complete step execution
@@ -373,13 +380,18 @@ class PipelineExecutor:
                         self.pipeline.pipeline_id
                     )
                 
+                # Add clear step completion boundary
                 print_retro_status("SUCCESS", f"Step '{step.name}' completed in {execution_time:.2f}s")
+                print_retro_banner(f"END: {step.name}", "─", 50)
                 logger.info(f"Step '{step.name}' completed successfully")
                 
             except Exception as e:
                 # Handle step failure with retry logic
                 execution_time = (datetime.now() - start_time).total_seconds()
                 await self._handle_step_error(step, e, execution_time)
+                
+                # Add clear step error boundary
+                print_retro_banner(f"END: {step.name}", "─", 50)
                 
                 # Don't re-raise for individual steps - let the pipeline continue
                 logger.error(f"Step '{step.name}' failed: {e}")
@@ -410,12 +422,12 @@ class PipelineExecutor:
                 if name in step.tools_filter
             }
         
-        # Create step-specific config
+        # Create step-specific config with reduced verbosity for cleaner pipeline output
         step_config = TAgentConfig(
             model=self.agent_config.model,
             api_key=self.agent_config.api_key,
             max_iterations=self.agent_config.max_iterations,
-            verbose=self.agent_config.verbose,
+            verbose=False,  # Force verbose=False for cleaner pipeline output
             tools=available_tools,
             output_format=step.output_schema or self.agent_config.output_format,
             ui_style=self.agent_config.ui_style,
@@ -429,7 +441,13 @@ class PipelineExecutor:
                     asyncio.to_thread(
                         run_task_based_agent,
                         step_goal,
-                        config=step_config
+                        step_config.tools,
+                        output_format=step_config.output_format,
+                        model=step_config.model,
+                        api_key=step_config.api_key,
+                        max_iterations=step_config.max_iterations,
+                        verbose=step_config.verbose,
+                        temperature=step_config.temperature
                     ),
                     timeout=step.timeout
                 )
@@ -439,7 +457,13 @@ class PipelineExecutor:
             result = await asyncio.to_thread(
                 run_task_based_agent,
                 step_goal,
-                config=step_config
+                step_config.tools,
+                output_format=step_config.output_format,
+                model=step_config.model,
+                api_key=step_config.api_key,
+                max_iterations=step_config.max_iterations,
+                verbose=step_config.verbose,
+                temperature=step_config.temperature
             )
         
         # Extract result from TAgent response
