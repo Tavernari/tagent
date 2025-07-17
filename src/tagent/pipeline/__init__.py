@@ -22,7 +22,10 @@ from .models import (
     StepContext,
     SharedPipelineContext,
     PipelineExecutionSummary,
-    PersistenceManagerSummary
+    PersistenceManagerSummary,
+    Checkpoint,
+    ExecutionHistoryEvent,
+    AuditLog
 )
 from .scheduler import PipelineScheduler, SchedulingStrategy, SchedulingSummary
 from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
@@ -32,7 +35,11 @@ from .persistence import (
     StorageBackendType,
     FileStorageBackend,
     SQLiteStorageBackend,
-    MemoryStorageBackend
+    MemoryStorageBackend,
+    CheckpointManager,
+    HistoryManager,
+    AuditManager,
+    CheckpointNotFoundError,
 )
 from .executor import PipelineExecutor, PipelineExecutorConfig, PipelineValidationError
 from .step_executor import StepExecutor, RetryConfig, TimeoutConfig
@@ -75,6 +82,9 @@ __all__ = [
     "SharedPipelineContext",
     "PipelineExecutionSummary",
     "PersistenceManagerSummary",
+    "Checkpoint",
+    "ExecutionHistoryEvent",
+    "AuditLog",
     
     # Scheduler
     "PipelineScheduler",
@@ -88,11 +98,15 @@ __all__ = [
     
     # Persistence
     "PipelineMemoryManager",
-    "PersistenceConfig",
+    "PersistenceConfig", 
     "StorageBackendType",
     "FileStorageBackend",
     "SQLiteStorageBackend",
     "MemoryStorageBackend",
+    "CheckpointManager",
+    "HistoryManager",
+    "AuditManager",
+    "CheckpointNotFoundError",
     
     # Execution
     "PipelineExecutor",
@@ -111,7 +125,7 @@ __all__ = [
     "SharedMemorySpace",
     "MessageType",
     "EventType", 
-    "MessagePriority"
+    "MessagePriority",
 
     # Conditions
     "ConditionEvaluator",

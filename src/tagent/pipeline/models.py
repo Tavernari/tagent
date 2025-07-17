@@ -499,3 +499,33 @@ class PersistenceManagerSummary(BaseModel):
     auto_cleanup: bool = Field(description="Whether auto cleanup is enabled")
     active_pipelines: List[str] = Field(default_factory=list, description="List of active pipeline IDs")
     shared_memory_keys: List[str] = Field(default_factory=list, description="Keys in shared memory")
+
+
+class Checkpoint(BaseModel):
+    """Represents a snapshot of pipeline state for recovery."""
+    checkpoint_id: str = Field(description="Unique checkpoint identifier")
+    pipeline_id: str = Field(description="Identifier of the pipeline being checkpointed")
+    checkpoint_type: str = Field(description="Type or reason for the checkpoint (e.g., 'pre_step', 'manual')")
+    state: PipelineMemoryState = Field(description="The pipeline memory state at the time of checkpoint")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional context or metadata")
+    created_at: datetime = Field(default_factory=datetime.now, description="Timestamp of checkpoint creation")
+
+
+class ExecutionHistoryEvent(BaseModel):
+    """Represents a single event in the pipeline's execution history."""
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique event identifier")
+    execution_id: str = Field(description="Identifier for the specific pipeline run")
+    pipeline_id: str = Field(description="Identifier of the pipeline")
+    event_type: str = Field(description="Type of event (e.g., 'execution_start', 'step_completed')")
+    step_name: Optional[str] = Field(default=None, description="Name of the step involved, if applicable")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp of the event")
+    details: Dict[str, Any] = Field(default_factory=dict, description="Event-specific details")
+
+
+class AuditLog(BaseModel):
+    """Represents a log entry for auditing purposes."""
+    log_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique log identifier")
+    pipeline_id: str = Field(description="Identifier of the pipeline related to the event")
+    event_name: str = Field(description="Name of the event being logged (e.g., 'state_saved', 'state_loaded')")
+    timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp of the event")
+    details: Dict[str, Any] = Field(default_factory=dict, description="Log-specific details")
