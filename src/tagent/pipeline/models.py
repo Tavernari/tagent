@@ -121,6 +121,37 @@ class PipelineStep:
         return None
 
 
+def get_execution_duration(self) -> Optional[float]:
+        """Get execution duration in seconds."""
+        if self.start_time and self.end_time:
+            return (self.end_time - self.start_time).total_seconds()
+        return None
+
+
+class PipelineSummary(BaseModel):
+    """Summary of pipeline state."""
+    pipeline_id: str = Field(description="Unique pipeline identifier")
+    name: str = Field(description="Pipeline name")
+    description: str = Field(description="Pipeline description")
+    total_steps: int = Field(description="Total number of steps")
+    status_counts: Dict[str, int] = Field(default_factory=dict, description="Count of steps by status")
+    created_at: str = Field(description="Creation timestamp")
+    global_constraints: List[str] = Field(default_factory=list, description="Global constraints")
+    shared_context_keys: List[str] = Field(default_factory=list, description="Keys in shared context")
+
+
+class SharedPipelineContext(BaseModel):
+    """Shared context data for pipeline execution."""
+    pipeline_id: str = Field(description="Pipeline identifier")
+    pipeline_name: str = Field(description="Pipeline name")
+    global_constraints: List[str] = Field(default_factory=list, description="Global constraints")
+    execution_phase: str = Field(description="Current execution phase")
+    shared_variables: Dict[str, str] = Field(default_factory=dict, description="Shared string variables")
+    shared_numbers: Dict[str, float] = Field(default_factory=dict, description="Shared numeric variables")
+    shared_flags: Dict[str, bool] = Field(default_factory=dict, description="Shared boolean flags")
+    shared_lists: Dict[str, List[str]] = Field(default_factory=dict, description="Shared list variables")
+
+
 class Pipeline:
     """Main pipeline orchestrator with fluent interface."""
     
@@ -257,6 +288,27 @@ class Pipeline:
                 list(self.shared_context.shared_lists.keys())
             )
         )
+
+
+class PipelineExecutionSummary(BaseModel):
+    """Comprehensive execution summary."""
+    pipeline_name: str = Field(description="Pipeline name")
+    pipeline_id: str = Field(description="Pipeline identifier")
+    success: bool = Field(description="Overall success status")
+    execution_time: float = Field(description="Total execution time")
+    start_time: str = Field(description="Start timestamp")
+    end_time: str = Field(description="End timestamp")
+    total_cost: float = Field(description="Total execution cost")
+    steps_completed: int = Field(description="Number of completed steps")
+    steps_failed: int = Field(description="Number of failed steps")
+    steps_skipped: int = Field(description="Number of skipped steps")
+    total_steps: int = Field(description="Total number of steps")
+    success_rate: float = Field(description="Success rate percentage")
+    retry_count: int = Field(description="Total retry count")
+    failed_steps: List[str] = Field(default_factory=list, description="List of failed steps")
+    learned_facts_count: int = Field(description="Number of learned facts")
+    saved_memories_count: int = Field(description="Number of saved memories")
+    step_outputs_count: int = Field(description="Number of step outputs")
 
 
 @dataclass
@@ -422,18 +474,6 @@ class PipelineMemoryState(BaseModel):
     completed_steps: List[str] = Field(default_factory=list, description="List of completed steps")
 
 
-class PipelineSummary(BaseModel):
-    """Summary of pipeline state."""
-    pipeline_id: str = Field(description="Unique pipeline identifier")
-    name: str = Field(description="Pipeline name")
-    description: str = Field(description="Pipeline description")
-    total_steps: int = Field(description="Total number of steps")
-    status_counts: Dict[str, int] = Field(default_factory=dict, description="Count of steps by status")
-    created_at: str = Field(description="Creation timestamp")
-    global_constraints: List[str] = Field(default_factory=list, description="Global constraints")
-    shared_context_keys: List[str] = Field(default_factory=list, description="Keys in shared context")
-
-
 class StepContext(BaseModel):
     """Context for step execution."""
     step_name: str = Field(description="Name of the step")
@@ -442,18 +482,6 @@ class StepContext(BaseModel):
     execution_history_count: int = Field(description="Number of execution history events")
     current_step: Optional[str] = Field(default=None, description="Currently executing step")
     timestamp: str = Field(description="Context creation timestamp")
-
-
-class SharedPipelineContext(BaseModel):
-    """Shared context data for pipeline execution."""
-    pipeline_id: str = Field(description="Pipeline identifier")
-    pipeline_name: str = Field(description="Pipeline name")
-    global_constraints: List[str] = Field(default_factory=list, description="Global constraints")
-    execution_phase: str = Field(description="Current execution phase")
-    shared_variables: Dict[str, str] = Field(default_factory=dict, description="Shared string variables")
-    shared_numbers: Dict[str, float] = Field(default_factory=dict, description="Shared numeric variables")
-    shared_flags: Dict[str, bool] = Field(default_factory=dict, description="Shared boolean flags")
-    shared_lists: Dict[str, List[str]] = Field(default_factory=dict, description="Shared list variables")
 
 
 class PipelineStepContext(BaseModel):
