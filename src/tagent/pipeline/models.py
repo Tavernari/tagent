@@ -5,7 +5,7 @@ This module contains the foundational data models for pipeline definition and ex
 including pipeline steps, pipeline orchestration, and execution results.
 """
 
-from typing import Dict, Any, List, Optional, Type, Union, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Type, Union, TYPE_CHECKING, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
@@ -53,6 +53,7 @@ class PipelineStep:
     timeout: Optional[int] = None
     retry_count: int = 0
     max_retries: int = 3
+    tools: Optional[List[Callable]] = None
     tools_filter: Optional[List[str]] = None
     output_schema: Optional[Type[BaseModel]] = None
     agent_config: Optional['TAgentConfig'] = None  # Step-specific TAgent configuration

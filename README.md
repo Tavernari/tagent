@@ -50,7 +50,7 @@ def get_stock_price(symbol: str):
 # 3. Run the agent
 result = await run_agent(
     goal=goal,
-    tools={"get_stock_price": get_stock_price},
+    tools=[get_stock_price],
     model="gpt-4o-mini"
 )
 

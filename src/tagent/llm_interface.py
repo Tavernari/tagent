@@ -21,7 +21,7 @@ def query_llm_with_adapter(
     model: str = "gpt-3.5-turbo",
     api_key: Optional[str] = None,
     max_retries: int = 3,
-    tools: Optional[Dict[str, Callable]] = None,
+    tools: Optional[List[Callable]] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     verbose: bool = False,
 ) -> StructuredResponse:

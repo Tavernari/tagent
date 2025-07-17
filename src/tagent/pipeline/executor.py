@@ -414,13 +414,23 @@ class PipelineExecutor:
             ])
             step_goal += f"\n\nAvailable data from dependencies:\n{dep_context}"
         
-        # Prepare tools (apply filtering if specified)
-        available_tools = self.agent_config.tools or {}
+        # Prepare tools: combine global and step-specific tools
+        global_tools = self.agent_config.tools or []
+        step_tools = step.tools or []
+        
+        # Use a dictionary to handle overrides and remove duplicates (step-specific takes precedence)
+        combined_tools_dict = {tool.__name__: tool for tool in global_tools}
+        combined_tools_dict.update({tool.__name__: tool for tool in step_tools})
+        
+        combined_tools = list(combined_tools_dict.values())
+        
+        # Apply tool filtering if specified
+        available_tools = combined_tools
         if step.tools_filter:
-            available_tools = {
-                name: tool for name, tool in available_tools.items()
-                if name in step.tools_filter
-            }
+            available_tools = [
+                tool for tool in combined_tools
+                if tool.__name__ in step.tools_filter
+            ]
         
         # Create step-specific config with fallback to main config
         if step.agent_config:

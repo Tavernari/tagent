@@ -368,7 +368,7 @@ def query_llm_with_adapter(
     model: str = "gpt-3.5-turbo",
     api_key: Optional[str] = None,
     max_retries: int = 3,
-    tools: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Callable]] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     verbose: bool = False,
 ) -> StructuredResponse:
@@ -380,7 +380,7 @@ def query_llm_with_adapter(
         model: Model name
         api_key: API key for the LLM service
         max_retries: Maximum number of retries
-        tools: Available tools dictionary
+        tools: Available tool functions
         conversation_history: Previous conversation messages
         verbose: Enable verbose logging
         
@@ -401,6 +401,7 @@ def query_llm_with_adapter(
     available_tools = ""
     if tools:
         available_tools = get_tool_documentation(tools)
+
 
     user_message = {
         "role": "user",

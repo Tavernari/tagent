@@ -2,6 +2,40 @@
 
 Once you've mastered the core concepts, you can leverage TAgent's advanced features to build more efficient, robust, and dynamic pipelines.
 
+## Step-Specific Tools
+
+While you can provide a global list of tools in the `TAgentConfig`, you can also provide a specific list of tools for an individual step. This is useful for isolating functionality and improving security by ensuring a step only has access to the tools it needs.
+
+Step-specific tools are **combined** with global tools. If a tool with the same name exists in both lists, the step-specific version will be used.
+
+```python
+# Define a global tool
+def global_tool():
+    """A tool available to all steps."""
+    return "global_result", "from global"
+
+# Define a step-specific tool
+def specialized_tool():
+    """A tool only for a specific step."""
+    return "special_result", "from specialized"
+
+# In the PipelineBuilder...
+builder.step(
+    name="special_step",
+    goal="This step needs a special tool.",
+    tools=[specialized_tool]  # Provide the tool directly to the step
+)
+
+# In the main run call...
+agent_config = TAgentConfig(
+    model="gpt-4o-mini",
+    tools=[global_tool] # Global tools
+)
+
+executor = PipelineExecutor(pipeline, config=agent_config)
+```
+In this scenario, the `special_step` will have access to both `specialized_tool` and `global_tool`. Other steps in the pipeline will only have access to `global_tool`.
+
 ## Concurrent Execution
 
 By default, steps run in `SERIAL` mode. However, you can run independent steps in `CONCURRENT` mode to save time.

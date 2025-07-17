@@ -161,6 +161,7 @@ def create_inventory_pipeline(products_to_check: List[str]) -> PipelineBuilder:
         name="check_stock",
         goal=f"Check stock levels for the following products: {', '.join(products_to_check)}",
         output_schema=CheckStockLevelsOutput,
+        tools=[check_stock_levels],  # Step-specific tool
     )
 
     # For each product, add parallel steps to get quotes if stock is low
@@ -220,11 +221,11 @@ if __name__ == "__main__":
 
     result = run_agent(
         goal_or_pipeline=inventory_pipeline,
-        tools={
-            "check_stock_levels": check_stock_levels,
-            "get_supplier_quotes": get_supplier_quotes,
-            "create_purchase_order": create_purchase_order,
-        },
+        # Global tools available to all steps unless overridden
+        tools=[
+            get_supplier_quotes,
+            create_purchase_order,
+        ],
         output_format=InventorySummary,
         max_iterations=10, # Increased for potentially more complex pipeline execution
         verbose=False,

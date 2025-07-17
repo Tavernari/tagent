@@ -157,11 +157,11 @@ class TabNewsRecentsPostSummaries(BaseModel):
 run_agent_response = run_agent(
     goal="Load articles from tabnews, select just one, then read the post content, summarize, and then translate to chinese. It is not required to load all articles.",
     model="openrouter/google/gemini-2.5-flash",
-    tools={
-        "extract_tabnews_articles": extract_tabnews_articles,
-        "load_url_content": load_and_process_url,
-        "translate": translate
-    },
+    tools=[
+        extract_tabnews_articles,
+        load_and_process_url,
+        translate
+    ],
     output_format=TabNewsRecentsPostSummaries,
     max_iterations=2,
     verbose=False

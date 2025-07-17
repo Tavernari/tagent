@@ -62,7 +62,7 @@ def discover_tagent_files(
     return discovered
 
 
-def load_tools_from_file(file_path: str) -> Dict[str, Callable]:
+def load_tools_from_file(file_path: str) -> List[Callable]:
     """
     Loads tool functions from a tagent.tools.py file.
 
@@ -70,9 +70,9 @@ def load_tools_from_file(file_path: str) -> Dict[str, Callable]:
         file_path: Path to the tagent.tools.py file
 
     Returns:
-        Dictionary of tool name -> function
+        List of tool functions
     """
-    tools = {}
+    tools = []
 
     try:
         # Load module from file path
@@ -93,7 +93,7 @@ def load_tools_from_file(file_path: str) -> Dict[str, Callable]:
                 params = list(sig.parameters.keys())
 
                 if len(params) >= 2 and params[0] == "state" and params[1] == "args":
-                    tools[name] = obj
+                    tools.append(obj)
                     print(f"  ✓ Loaded tool: {name}")
                 else:
                     print(
@@ -246,16 +246,20 @@ Examples:
 
     # Load tools
     print("🔧 Loading tools...")
-    all_tools = {}
+    all_tools = []
 
     for tool_file in discovered["tools"]:
         print(f"Loading from {tool_file}:")
         tools = load_tools_from_file(tool_file)
-        all_tools.update(tools)
+        all_tools.extend(tools)
+
+    # Remove duplicates
+    unique_tools_dict = {tool.__name__: tool for tool in all_tools}
+    all_tools = list(unique_tools_dict.values())
 
     print(f"Total tools loaded: {len(all_tools)}")
     if all_tools:
-        print("Available tools:", list(all_tools.keys()))
+        print("Available tools:", [tool.__name__ for tool in all_tools])
     print()
 
     # Load output schema
@@ -319,6 +323,7 @@ Examples:
     except Exception as e:
         print(f"\n❌ Error during agent execution: {e}")
         sys.exit(1)
+
 
 
 if __name__ == "__main__":

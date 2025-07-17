@@ -136,10 +136,10 @@ The template resolution issue occurs when task 2 tries to use {{task_1.output.0.
     result = run_agent(
         goal=goal,
         model="openrouter/google/gemini-2.5-flash",
-        tools={
-            "search_reclame_aqui": mock_reclame_aqui_search,
-            "load_web_page_tool": load_web_page_tool
-        },
+        tools=[
+            mock_reclame_aqui_search,
+            load_web_page_tool
+        ],
         output_format=CompanyReputationAnalysis,
         max_iterations=1,
         verbose=True

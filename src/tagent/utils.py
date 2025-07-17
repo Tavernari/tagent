@@ -6,12 +6,12 @@ from typing import Dict, Any, Callable, List
 import inspect
 
 
-def get_tool_documentation(tools: Dict[str, Callable]) -> str:
+def get_tool_documentation(tools: List[Callable]) -> str:
     """
     Extracts documentation from registered tools including docstrings and signatures.
 
     Args:
-        tools: Dictionary of registered tools
+        tools: List of registered tool functions
 
     Returns:
         Formatted string with tool documentation
@@ -21,13 +21,14 @@ def get_tool_documentation(tools: Dict[str, Callable]) -> str:
 
     tool_docs = []
 
-    for tool_name, tool_func in tools.items():
+    for tool_func in tools:
+        tool_name = tool_func.__name__
         # Extract function signature
         try:
             sig = inspect.signature(tool_func)
             signature = f"{tool_name}{sig}"
         except (ValueError, TypeError):
-            signature = f"{tool_name}(state, args)"
+            signature = f"{tool_name}(...)"
 
         # Extract docstring
         docstring = inspect.getdoc(tool_func)

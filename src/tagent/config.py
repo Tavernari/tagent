@@ -8,7 +8,7 @@ including UI style, model settings, and execution parameters.
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Union, Callable, Type
+from typing import Optional, Dict, Any, Union, Callable, Type, List
 from pydantic import BaseModel
 
 from .ui.factory import UIStyle
@@ -38,7 +38,7 @@ class TAgentConfig:
     ui_style: UIStyle = UIStyle.MODERN
     
     # Tool configuration
-    tools: Optional[Dict[str, Callable]] = None
+    tools: Optional[List[Callable]] = None
     
     # Output configuration
     output_format: Optional[Type[BaseModel]] = None
@@ -162,10 +162,16 @@ class TAgentConfig:
                 # Merge custom settings
                 config.custom_settings.update(other_value)
             elif field_info.name == "tools" and other_value is not None:
-                # Merge tools
+                # Merge tools by combining lists and removing duplicates
                 if config.tools is None:
-                    config.tools = {}
-                config.tools.update(other_value)
+                    config.tools = []
+                
+                existing_tool_names = {t.__name__ for t in config.tools}
+                for tool in other_value:
+                    if tool.__name__ not in existing_tool_names:
+                        config.tools.append(tool)
+                        existing_tool_names.add(tool.__name__)
+
             elif other_value != field_info.default:
                 # Override if not default value
                 setattr(config, field_info.name, other_value)

@@ -20,23 +20,24 @@ class ToolRAG(TFIDFRagContextManager):
     JSON schemas to provide structured input formats.
     """
 
-    def __init__(self, tools: Dict[str, Callable]):
+    def __init__(self, tools: List[Callable]):
         """
         Initialize the ToolRAG with all available tools.
         
         Args:
-            tools: A dictionary of tool names to their callable functions.
+            tools: A list of callable tool functions.
         """
         super().__init__(goal="agent_tools")
         self._initialize_tools(tools)
 
-    def _initialize_tools(self, tools: Dict[str, Callable]):
+    def _initialize_tools(self, tools: List[Callable]):
         """
         Load all tools into RAG documents, inspecting their signature
         for Pydantic models to generate input and output schemas.
         """
         tool_documents = []
-        for tool_name, tool_func in tools.items():
+        for tool_func in tools:
+            tool_name = tool_func.__name__
             docstring = tool_func.__doc__
             if not docstring:
                 print(f"Warning: Tool '{tool_name}' has no docstring and will be ignored by ToolRAG.")

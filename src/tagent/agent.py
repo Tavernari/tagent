@@ -76,7 +76,7 @@ def run_agent(
     model: Union[str, AgentModelConfig] = "gpt-4",
     api_key: Optional[str] = None,
     max_iterations: int = 20,
-    tools: Optional[Dict[str, Callable]] = None,
+    tools: Optional[List[Callable]] = None,
     output_format: Optional[Type[AgentOutputType]] = None,
     verbose: bool = False,
     crash_if_over_iterations: bool = False,
@@ -96,7 +96,7 @@ def run_agent(
             or an AgentModelConfig object for step-specific model configuration.
         api_key: The API key for the LLM service.
         max_iterations: The maximum number of iterations.
-        tools: A dictionary of custom tools to register with the agent.
+        tools: A list of custom tool functions to register with the agent.
         output_format: The Pydantic model for the final output.
         verbose: If True, shows all debug logs. If False, shows only essential logs.
         crash_if_over_iterations: If True, raises exception when max_iterations
@@ -145,7 +145,7 @@ def run_agent(
             # Use the task-based agent approach
             result = run_task_based_agent(
                 goal=goal,
-                tools=tools or {},
+                tools=tools or [],
                 output_format=output_format,
                 model=model_config.tagent_model,
                 api_key=api_key,  # Let LiteLLM handle environment variables
@@ -188,7 +188,7 @@ def run_agent(
             # Use the task-based agent approach
             result = run_task_based_agent(
                 goal=goal,
-                tools=merged_config.tools or {},
+                tools=merged_config.tools or [],
                 output_format=merged_config.output_format,
                 model=model_config.tagent_model,
                 api_key=model_config.api_key,
@@ -206,7 +206,7 @@ async def run_pipeline(
     model: Union[str, AgentModelConfig] = "gpt-4",
     api_key: Optional[str] = None,
     max_iterations: int = 20,
-    tools: Optional[Dict[str, Callable]] = None,
+    tools: Optional[List[Callable]] = None,
     output_format: Optional[Type[AgentOutputType]] = None,
     verbose: bool = False,
     crash_if_over_iterations: bool = False,
@@ -221,7 +221,7 @@ async def run_pipeline(
         model: Model configuration for pipeline execution
         api_key: API key for LLM service
         max_iterations: Maximum iterations per step
-        tools: Dictionary of available tools
+        tools: List of available tool functions
         output_format: Output format for pipeline results
         verbose: Enable verbose logging
         crash_if_over_iterations: Crash if iterations exceeded
@@ -364,8 +364,8 @@ if __name__ == "__main__":
         # Note: state parameter is available for accessing agent state if needed
         return ("weather_data", weather_data)
 
-    # Create a dictionary of tools to register
-    agent_tools = {"fetch_weather": fetch_weather_tool}
+    # Create a list of tools to register
+    agent_tools = [fetch_weather_tool]
 
     # Define the desired output format
     class WeatherReport(BaseModel):
@@ -386,3 +386,4 @@ if __name__ == "__main__":
     print("\nFinal Result:", result)
     if result.output:
         print(f"Location: {result.output.location}")
+

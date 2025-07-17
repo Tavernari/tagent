@@ -95,7 +95,7 @@ def _translate_text(text: str, target_language: str, api_key: Optional[str] = No
 
 def run_task_based_agent(
     goal: str,
-    tools: Dict[str, Callable],
+    tools: List[Callable],
     output_format: Optional[Type[OutputType]] = None,
     model: str = "gpt-4",
     api_key: Optional[str] = None,
@@ -109,7 +109,7 @@ def run_task_based_agent(
     
     Args:
         goal: The objective to achieve
-        tools: Dictionary of available tools
+        tools: List of available tool functions
         output_format: Desired output format (Pydantic model)
         model: LLM model to use
         api_key: API key for LLM
@@ -130,13 +130,15 @@ def run_task_based_agent(
         english_goal = goal
     
     # Initialize components
-    tool_names = list(tools.keys())
+    tool_names = [t.__name__ for t in tools] if tools else []
+    tools_dict = {t.__name__: t for t in tools} if tools else {}
+    
     state_machine = TaskBasedStateMachine(english_goal, tool_names)
     state_machine.max_iterations = max_iterations
     state_machine.max_planning_cycles = max_planning_cycles
     
     context_manager = EnhancedContextManager(english_goal)
-    tool_rag = ToolRAG(tools)
+    tool_rag = ToolRAG(tools or [])
     instructions_rag = InstructionsRAG(tool_rag=tool_rag)  # Inject ToolRAG
     prompt_builder = PromptBuilder(instructions_rag)
     token_stats = TokenStats()  # Initialize token usage tracking
@@ -175,7 +177,7 @@ def run_task_based_agent(
             _execute_planning_phase(state_machine, context_manager, prompt_builder, model, api_key, verbose, token_stats)
             
         elif current_phase == AgentPhase.EXECUTING:
-            _execute_task_loop(state_machine, context_manager, prompt_builder, tool_rag, tools, model, api_key, verbose, token_stats)
+            _execute_task_loop(state_machine, context_manager, prompt_builder, tool_rag, tools_dict, model, api_key, verbose, token_stats)
             
         elif current_phase == AgentPhase.EVALUATING:
             _execute_evaluation_phase(state_machine, context_manager, prompt_builder, model, api_key, verbose, token_stats)

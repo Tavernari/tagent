@@ -6,7 +6,7 @@ result = run_agent(
     model="openrouter/google/gemini-2.5-flash",
     max_iterations=3,
     verbose=False,
-    tools={}
+    tools=[]
 )
 
 print(f"Goal achieved: {result.goal_achieved}")

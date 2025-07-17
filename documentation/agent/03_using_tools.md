@@ -36,11 +36,9 @@ def web_search(args: SearchArgs):
 
 async def main():
     # 3. Provide the tool to the agent
-    # The `tools` argument is a dictionary where the key is the name the agent will use,
-    # and the value is the function object.
-    tools = {
-        "web_search": web_search
-    }
+    # The `tools` argument is a list of tool functions.
+    # TAgent will use the function's __name__ as the tool name.
+    tools = [web_search]
 
     goal = "Find out what the TAgent framework is and what it's used for."
 

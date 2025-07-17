@@ -63,17 +63,23 @@ async def main():
         name="read_positive_texts",
         goal="Load the positive text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
-        tools_filter=["read_positive_text"],
+        tools=[
+            read_positive_text,
+        ],
     ).step(
         name="read_negative_texts",
         goal="Load the negative text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
-        tools_filter=["read_negative_text"],
+        tools=[
+            read_negative_text,
+        ],
     ).step(
         name="read_neutral_texts",
         goal="Load the neutral text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
-        tools_filter=["read_neutral_text"],
+        tools=[
+            read_neutral_text,
+        ],
     ).step(
         name="post_creation",
         goal=(
@@ -92,19 +98,15 @@ async def main():
         name="publish_post",
         goal="Publish the post by saving the content to a file.",
         depends_on=["post_creation"],
-        tools_filter=["save_post"],
+        tools=[
+            save_post,
+        ],
         condition=ConditionDSL.data_exists("post_creation.post")
     ).build()
 
     # Configure TAgent
     config = TAgentConfig(
         model="openrouter/google/gemini-2.5-flash-lite-preview-06-17",
-        tools={
-            "read_positive_text": read_positive_text,
-            "read_negative_text": read_negative_text,
-            "read_neutral_text": read_neutral_text,
-            "save_post": save_post,
-        },
         verbose=False,
     )
 
