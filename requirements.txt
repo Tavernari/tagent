@@ -10,3 +10,4 @@ scikit-learn>=1.0.0
 numpy>=1.20.0
 beautifulsoup4
 requests
+networkx>=2.5.0
