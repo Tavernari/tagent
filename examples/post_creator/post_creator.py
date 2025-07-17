@@ -1,56 +1,57 @@
 #!/usr/bin/env python3
 
 import asyncio
-from typing import Optional, List, Tuple
+from typing import Tuple
 from pydantic import BaseModel, Field
-import random
 import os
 from os import path
 
-from tagent.pipeline import PipelineBuilder, ConditionDSL, ExecutionMode
+from tagent.pipeline import PipelineBuilder, ExecutionMode
+from tagent.pipeline.conditions import And, DataExists
 from tagent.pipeline.executor import PipelineExecutor, PipelineExecutorConfig
 from tagent.config import TAgentConfig
 
 def read_positive_text() -> Tuple[str, str]:
     """Reads the text from the positive_text.md file."""
     try:
-        with open(path.join("examples", "post_creator", "text_positive.md"), "r") as f:
+        with open(path.join("examples", "post_creator", "text_positive.md"), "r", encoding='utf-8') as f:
             text = f.read()
             return ("positive_text", text)
     except Exception as e:
+        print(f"Failed to read positive text: {str(e)}")
         return ("positive_text", "failed to read positive text")
 
 def read_negative_text() -> Tuple[str, str]:
     """Reads the text from the negative_text.md file."""
     try:
-        with open(path.join("examples", "post_creator", "text_negative.md"), "r") as f:
+        with open(path.join("examples", "post_creator", "text_negative.md"), "r", encoding='utf-8') as f:
             text = f.read()
             return ("negative_text", text)
     except Exception as e:
+        print(f"Failed to read negative text: {str(e)}")
         return ("negative_text", "failed to read negative text")
 
 def read_neutral_text() -> Tuple[str, str]:
     """Reads the text from the neutral_text.md file."""
     try:
-        with open(path.join("examples", "post_creator", "text_neutral.md"), "r") as f:
+        with open(path.join("examples", "post_creator", "text_neutral.md"), "r", encoding='utf-8') as f:
             text = f.read()
             return ("neutral_text", text)
     except Exception as e:
+        print(f"Failed to read neutral text: {str(e)}")
         return ("neutral_text", "failed to read neutral text")
 
-def save_post(state: dict, args: dict) -> Tuple[str, str]:
+def save_post(post_content: str) -> Tuple[str, str]:
     """Saves the generated post to a file."""
     try:
-        # Get the post content from args (will be injected by enhanced tool)
-        post_content = args.get("post", "")
-        
         if not post_content:
             return ("post", "failed to save post: no post content provided")
         
-        with open(path.join("examples", "post_creator", "final_post.md"), "w") as f:
+        with open(path.join("examples", "post_creator", "final_post.md"), "w", encoding='utf-8') as f:
             f.write(post_content)
             return ("post", "post saved successfully")
     except Exception as e:
+        print(f"Failed to save post: {str(e)}")
         return ("post", f"failed to save post: {str(e)}")
 
 # Define the expected output structure for the LLM-based step
@@ -100,10 +101,10 @@ async def main():
             "topic of Context Engineering."
         ),
         depends_on=["positive_text_step", "negative_text_step", "neutral_text_step"],
-        condition=ConditionDSL.combine_and(
-            ConditionDSL.data_exists("positive_text_step"),
-            ConditionDSL.data_exists("negative_text_step"),
-            ConditionDSL.data_exists("neutral_text_step"),
+        condition=And(
+            DataExists("positive_text_step"),
+            DataExists("negative_text_step"),
+            DataExists("neutral_text_step"),
         ),
         output_schema=BlogPostOutput,
         read_data=["positive_text_step.text", "negative_text_step.text", "neutral_text_step.text"],
@@ -114,7 +115,7 @@ async def main():
         tools=[
             save_post,
         ],
-        condition=ConditionDSL.data_exists("post_creation_step"),
+        condition=DataExists("post_creation_step"),
         read_data=["post_creation_step.post"],
     ).build()
 

@@ -572,34 +572,196 @@ builder.step(
 
 The `PipelineExecutor` will automatically manage the retry logic. If the step fails more than `max_retries`, the entire pipeline will be marked as failed.
 
-## Conditional Execution (Coming Soon)
+## Conditional Execution
 
-The ability to execute or skip steps based on the output of previous steps is a planned feature. The internal architecture includes placeholders for a `condition` attribute on a `PipelineStep`.
+The TAgent pipeline system now supports sophisticated conditional execution using expressive condition classes. You can execute or skip steps based on the output of previous steps using intuitive, type-safe conditions.
 
-The envisioned API would look something like this:
+### Basic Conditional Logic
 
 ```python
-# --- THIS IS A FUTURE EXAMPLE, NOT YET IMPLEMENTED ---
-from tagent.pipeline.conditions import IsGreaterThan
+from tagent.pipeline.conditions import IsGreaterThan, IsLessThan, IsEqualTo, DataExists, And, Or, Not
+from pydantic import BaseModel, Field
 
+# Define structured output for sentiment analysis
+class SentimentOutput(BaseModel):
+    score: float = Field(description="Sentiment score from 0 to 10")
+    confidence: float = Field(description="Confidence level (0-1)")
+    category: str = Field(description="Sentiment category: positive, negative, neutral")
+
+# Build a pipeline with conditional branching
 builder.step(
-    name="check_sentiment",
-    goal="Analyze the sentiment of a user review and return a score from 0 to 10."
+    name="analyze_sentiment",
+    goal="Analyze the sentiment of a user review and return a score from 0 to 10.",
+    output_schema=SentimentOutput
 ).step(
     name="send_thank_you_email",
     goal="Draft a thank you email for the positive review.",
-    depends_on=["check_sentiment"],
-    # This step would only run if the output of 'check_sentiment' is greater than 7
-    condition=IsGreaterThan(step="check_sentiment", value=7)
+    depends_on=["analyze_sentiment"],
+    # This step only runs if sentiment score is greater than 7
+    condition=IsGreaterThan(path="analyze_sentiment.score", value=7.0)
 ).step(
     name="escalate_to_support",
     goal="Draft a support ticket to address the negative review.",
-    depends_on=["check_sentiment"],
-    # This step would only run if the output is NOT greater than 7
-    condition=Not(IsGreaterThan(step="check_sentiment", value=7))
+    depends_on=["analyze_sentiment"],
+    # This step only runs if sentiment score is less than 4
+    condition=IsLessThan(path="analyze_sentiment.score", value=4.0)
+).step(
+    name="send_neutral_response",
+    goal="Send a standard response for neutral feedback.",
+    depends_on=["analyze_sentiment"],
+    # This step runs for neutral scores (4-7 range)
+    condition=And(
+        IsGreaterThan(path="analyze_sentiment.score", value=4.0),
+        IsLessThan(path="analyze_sentiment.score", value=7.0)
+    )
 )
 ```
-This would allow for dynamic, branching logic within your workflows.
+
+### Advanced Conditional Examples
+
+```python
+from tagent.pipeline.conditions import Contains, IsEmpty, IsEqualTo, IsGreaterThan, IsLessThan, And, Or, Not
+from typing import Dict, List, Any
+
+# Define complex output schema
+class ProcessingResult(BaseModel):
+    status: str = Field(description="Processing status: success, warning, error")
+    errors: List[str] = Field(description="List of error messages")
+    data: Dict[str, Any] = Field(description="Processed data")
+    metrics: Dict[str, float] = Field(description="Processing metrics")
+
+# Using the condition classes directly
+builder.step(
+    name="process_data",
+    goal="Process uploaded data and return results.",
+    output_schema=ProcessingResult
+).step(
+    name="handle_errors",
+    goal="Handle any errors that occurred during processing.",
+    depends_on=["process_data"],
+    # Run only if there are errors
+    condition=Not(IsEmpty("process_data.errors"))
+).step(
+    name="send_success_notification",
+    goal="Send success notification to user.",
+    depends_on=["process_data"],
+    # Run only if status is success and no errors
+    condition=And(
+        IsEqualTo("process_data.status", "success"),
+        IsEmpty("process_data.errors")
+    )
+).step(
+    name="generate_detailed_report",
+    goal="Generate a detailed processing report.",
+    depends_on=["process_data"],
+    # Run only if confidence metric is high
+    condition=IsGreaterThan("process_data.metrics.confidence", 0.8)
+).step(
+    name="quality_assurance_check",
+    goal="Perform additional quality assurance checks.",
+    depends_on=["process_data"],
+    # Run if status contains "warning" OR confidence is low
+    condition=Or(
+        Contains("process_data.status", "warning"),
+        IsLessThan("process_data.metrics.confidence", 0.6)
+    )
+)
+```
+
+### Available Condition Classes
+
+The pipeline system provides several expressive condition classes:
+
+#### Basic Conditions
+- **`DataExists(path)`** - Check if data exists at a path
+- **`IsGreaterThan(path, value)`** - Numeric greater than comparison
+- **`IsLessThan(path, value)`** - Numeric less than comparison
+- **`IsEqualTo(path, value)`** - Equality comparison
+- **`Contains(path, value)`** - Check if container contains value
+- **`IsEmpty(path)`** - Check if value is empty (None, empty string, empty list)
+
+#### Logical Operators
+- **`And(*conditions)`** - All conditions must be true
+- **`Or(*conditions)`** - Any condition must be true
+- **`Not(condition)`** - Negates the condition
+
+#### Usage Notes
+- All conditions support dot notation for accessing nested data (e.g., `"step_name.attribute"`)
+- Conditions are evaluated against the pipeline execution context
+- Type-safe evaluation with graceful handling of missing or invalid data
+- Can be combined with logical operators for complex conditional logic
+
+### Real-World Example: Customer Feedback Pipeline
+
+```python
+from typing import List
+from tagent.pipeline.conditions import IsGreaterThan, IsEqualTo, Contains, And, Or, Not
+
+class FeedbackAnalysis(BaseModel):
+    sentiment_score: float = Field(description="Sentiment score 0-10")
+    urgency_level: str = Field(description="low, medium, high, critical")
+    keywords: List[str] = Field(description="Extracted keywords")
+    customer_tier: str = Field(description="bronze, silver, gold, platinum")
+
+# Build conditional feedback processing pipeline
+pipeline = PipelineBuilder(
+    name="customer_feedback_pipeline",
+    description="Process customer feedback with conditional routing"
+).step(
+    name="analyze_feedback",
+    goal="Analyze customer feedback for sentiment, urgency, and keywords.",
+    tools=[feedback_analyzer],
+    output_schema=FeedbackAnalysis
+).step(
+    name="escalate_to_manager",
+    goal="Escalate critical issues to management immediately.",
+    depends_on=["analyze_feedback"],
+    # Escalate if critical urgency OR very negative sentiment from premium customers
+    condition=Or(
+        IsEqualTo("analyze_feedback.urgency_level", "critical"),
+        And(
+            IsLessThan("analyze_feedback.sentiment_score", 3.0),
+            Contains("analyze_feedback.customer_tier", "gold")
+        )
+    ),
+    tools=[escalation_manager]
+).step(
+    name="auto_respond_positive",
+    goal="Send automated positive response for high satisfaction.",
+    depends_on=["analyze_feedback"],
+    # Auto-respond to positive feedback from any customer
+    condition=And(
+        IsGreaterThan("analyze_feedback.sentiment_score", 8.0),
+        IsEqualTo("analyze_feedback.urgency_level", "low")
+    ),
+    tools=[auto_responder]
+).step(
+    name="assign_to_specialist",
+    goal="Assign technical issues to specialist team.",
+    depends_on=["analyze_feedback"],
+    # Assign to specialist if contains technical keywords
+    condition=Or(
+        Contains("analyze_feedback.keywords", "bug"),
+        Contains("analyze_feedback.keywords", "error"),
+        Contains("analyze_feedback.keywords", "integration")
+    ),
+    tools=[specialist_router]
+).step(
+    name="standard_response",
+    goal="Send standard response for routine feedback.",
+    depends_on=["analyze_feedback"],
+    # Default case: not critical, not super positive, not technical
+    condition=And(
+        Not(IsEqualTo("analyze_feedback.urgency_level", "critical")),
+        IsLessThan("analyze_feedback.sentiment_score", 8.0),
+        IsGreaterThan("analyze_feedback.sentiment_score", 3.0),
+        Not(Contains("analyze_feedback.keywords", "bug"))
+    ),
+    tools=[standard_responder]
+).build()
+```
+
+This conditional execution system allows you to build sophisticated, branching workflows that adapt to the results of previous steps, making your pipelines more intelligent and responsive to different scenarios.
 
 ---
 

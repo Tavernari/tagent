@@ -25,8 +25,9 @@ from .models import (
 from .state import PipelineStateMachine, PipelineMemory, PipelinePhase
 from .scheduler import PipelineScheduler
 from .persistence import PipelineMemoryManager, PersistenceConfig, StorageBackendType
-from .conditions import ConditionEvaluator
+from .conditions import ConditionEvaluator, BaseCondition
 from .monitoring import PipelineMonitor
+from .models import ExecutionMode
 
 
 logger = logging.getLogger(__name__)
@@ -271,7 +272,7 @@ class PipelineExecutor:
         concurrent_steps = []
         
         for step in steps:
-            if hasattr(step, 'execution_mode') and step.execution_mode.value == "concurrent":
+            if hasattr(step, 'execution_mode') and step.execution_mode == ExecutionMode.CONCURRENT:
                 concurrent_steps.append(step)
             else:
                 serial_steps.append(step)
@@ -322,6 +323,12 @@ class PipelineExecutor:
 
         if step.condition_mode == "pre":
             context = await self._build_condition_context()
+            
+            # Support new BaseCondition classes
+            if isinstance(step.condition, BaseCondition):
+                return step.condition.evaluate(context)
+            
+            # Fall back to legacy condition evaluator
             return self.condition_evaluator.evaluate(step.condition, context)
 
         return True  # Post-conditions are not handled yet
@@ -411,29 +418,20 @@ class PipelineExecutor:
             # Start with the original args
             enhanced_args = dict(args)
             
-            # Special handling for save_post - inject post content directly
-            if original_tool.__name__ == 'save_post':
-                # Look for post content in read_data_values
-                for data_key, data_value in read_data_values.items():
-                    if 'post' in data_key.lower():
-                        enhanced_args['post'] = data_value
-                        break
-            else:
-                # Generic parameter injection for other tools
-                for param_name in params:
-                    if param_name in ['state', 'args']:
-                        continue  # Skip standard parameters
+            # Generic parameter injection for other tools
+            for param_name in params:
+                if param_name in ['state', 'args']:
+                    continue  # Skip standard parameters
                         
-                    # Check if any read_data value should be injected for this parameter
-                    for data_key, data_value in read_data_values.items():
-                        # Try to match parameter name to data key or extract attribute name
-                        if param_name == data_key:
-                            enhanced_args[param_name] = data_value
-                            break
-                        # Handle attribute extraction (e.g., post_creation_step.post -> post)
-                        elif '.' in data_key and param_name == data_key.split('.')[-1]:
-                            enhanced_args[param_name] = data_value
-                            break
+                # Check if any read_data value should be injected for this parameter
+                for data_key, data_value in read_data_values.items():
+                    # Try to match parameter name to data key or extract attribute name
+                    if param_name == data_key:
+                        enhanced_args[param_name] = data_value
+                        break
+                    elif '.' in data_key and param_name == data_key.split('.')[-1]:
+                        enhanced_args[param_name] = data_value
+                        break
             
             # Call original tool with enhanced args
             return original_tool(state, enhanced_args)
@@ -467,6 +465,14 @@ class PipelineExecutor:
                             final_results[step_name] = getattr(results[step_name], attr_name, None)
                         else:
                             final_results[step_name] = results[step_name]
+                    elif step_name in self.pipeline.shared_context.shared_variables:
+                        if attr_name:
+                            final_results[step_name] = getattr(self.pipeline.shared_context.shared_variables[step_name], attr_name, None)
+                        else:
+                            final_results[step_name] = self.pipeline.shared_context.shared_variables[step_name]
+                    else:
+                        raise ValueError(f"Step '{step_name}' not found in dependency results or shared context")
+                        
                 results = final_results
 
             dep_context = "\n".join([

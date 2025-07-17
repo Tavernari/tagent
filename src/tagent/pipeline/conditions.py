@@ -1,19 +1,271 @@
 """
-Conditional Execution for TAgent Pipeline System.
+Advanced condition classes for TAgent Pipeline system.
 
-This module implements the logic for conditional execution of pipeline steps,
-allowing steps to run based on the results of previous steps.
+This module provides expressive, type-safe condition classes for conditional
+step execution in pipelines. These classes offer a more intuitive and
+maintainable way to define execution conditions.
 """
 
 import logging
 from typing import Any, Callable, Dict, List, Literal, Union
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 
-# --- Condition Models ---
+# --- New Expressive Condition Classes ---
+
+class BaseCondition(ABC):
+    """Base class for all pipeline conditions."""
+    operator: str
+    
+    @abstractmethod
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """
+        Evaluate the condition against the given context.
+        
+        Args:
+            context: Dictionary containing step results and execution context
+            
+        Returns:
+            bool: True if condition is met, False otherwise
+        """
+        pass
+    
+    @abstractmethod
+    def __str__(self) -> str:
+        """String representation of the condition."""
+        pass
+
+
+@dataclass
+class DataExists(BaseCondition):
+    """Condition that checks if data exists at a given path."""
+    
+    path: str
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Check if data exists at the specified path."""
+        if '.' in self.path:
+            step_name, _, attr_name = self.path.partition('.')
+            step_result = context.get(step_name)
+            if step_result is None:
+                return False
+            return hasattr(step_result, attr_name) and getattr(step_result, attr_name) is not None
+        else:
+            return self.path in context and context[self.path] is not None
+    
+    def __str__(self) -> str:
+        return f"DataExists({self.path})"
+
+
+@dataclass
+class IsGreaterThan(BaseCondition):
+    """Condition that checks if a numeric value is greater than a threshold."""
+    
+    path: str
+    value: Union[int, float]
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Check if the value at path is greater than the threshold."""
+        actual_value = self._get_value(context)
+        if actual_value is None:
+            return False
+        
+        try:
+            return float(actual_value) > float(self.value)
+        except (ValueError, TypeError):
+            return False
+    
+    def _get_value(self, context: Dict[str, Any]) -> Any:
+        """Extract value from context using the path."""
+        if '.' in self.path:
+            step_name, _, attr_name = self.path.partition('.')
+            step_result = context.get(step_name)
+            if step_result is None:
+                return None
+            return getattr(step_result, attr_name, None)
+        else:
+            return context.get(self.path)
+    
+    def __str__(self) -> str:
+        return f"IsGreaterThan({self.path} > {self.value})"
+
+
+@dataclass
+class IsLessThan(BaseCondition):
+    """Condition that checks if a numeric value is less than a threshold."""
+    
+    path: str
+    value: Union[int, float]
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Check if the value at path is less than the threshold."""
+        actual_value = self._get_value(context)
+        if actual_value is None:
+            return False
+        
+        try:
+            return float(actual_value) < float(self.value)
+        except (ValueError, TypeError):
+            return False
+    
+    def _get_value(self, context: Dict[str, Any]) -> Any:
+        """Extract value from context using the path."""
+        if '.' in self.path:
+            step_name, _, attr_name = self.path.partition('.')
+            step_result = context.get(step_name)
+            if step_result is None:
+                return None
+            return getattr(step_result, attr_name, None)
+        else:
+            return context.get(self.path)
+    
+    def __str__(self) -> str:
+        return f"IsLessThan({self.path} < {self.value})"
+
+
+@dataclass
+class IsEqualTo(BaseCondition):
+    """Condition that checks if a value equals a specific value."""
+    
+    path: str
+    value: Any
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Check if the value at path equals the expected value."""
+        actual_value = self._get_value(context)
+        return actual_value == self.value
+    
+    def _get_value(self, context: Dict[str, Any]) -> Any:
+        """Extract value from context using the path."""
+        if '.' in self.path:
+            step_name, _, attr_name = self.path.partition('.')
+            step_result = context.get(step_name)
+            if step_result is None:
+                return None
+            return getattr(step_result, attr_name, None)
+        else:
+            return context.get(self.path)
+    
+    def __str__(self) -> str:
+        return f"IsEqualTo({self.path} == {self.value})"
+
+
+@dataclass
+class Contains(BaseCondition):
+    """Condition that checks if a string or list contains a specific value."""
+    
+    path: str
+    value: Any
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Check if the value at path contains the expected value."""
+        actual_value = self._get_value(context)
+        if actual_value is None:
+            return False
+        
+        try:
+            return self.value in actual_value
+        except TypeError:
+            return False
+    
+    def _get_value(self, context: Dict[str, Any]) -> Any:
+        """Extract value from context using the path."""
+        if '.' in self.path:
+            step_name, _, attr_name = self.path.partition('.')
+            step_result = context.get(step_name)
+            if step_result is None:
+                return None
+            return getattr(step_result, attr_name, None)
+        else:
+            return context.get(self.path)
+    
+    def __str__(self) -> str:
+        return f"Contains({self.path} contains {self.value})"
+
+
+@dataclass
+class IsEmpty(BaseCondition):
+    """Condition that checks if a value is empty (None, empty string, empty list, etc.)."""
+    
+    path: str
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Check if the value at path is empty."""
+        actual_value = self._get_value(context)
+        
+        if actual_value is None:
+            return True
+        
+        if isinstance(actual_value, str):
+            return len(actual_value.strip()) == 0
+        
+        if isinstance(actual_value, (list, dict, tuple)):
+            return len(actual_value) == 0
+        
+        return False
+    
+    def _get_value(self, context: Dict[str, Any]) -> Any:
+        """Extract value from context using the path."""
+        if '.' in self.path:
+            step_name, _, attr_name = self.path.partition('.')
+            step_result = context.get(step_name)
+            if step_result is None:
+                return None
+            return getattr(step_result, attr_name, None)
+        else:
+            return context.get(self.path)
+    
+    def __str__(self) -> str:
+        return f"IsEmpty({self.path})"
+
+
+class CombinedCondition(BaseCondition):
+    """Base class for combining multiple conditions."""
+    
+    def __init__(self, *conditions: BaseCondition):
+        self.conditions = conditions
+    
+    def __str__(self) -> str:
+        condition_strs = [str(c) for c in self.conditions]
+        return f"{self.__class__.__name__}({', '.join(condition_strs)})"
+
+
+class And(CombinedCondition):
+    """Condition that requires ALL sub-conditions to be true."""
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """All conditions must be true."""
+        return all(condition.evaluate(context) for condition in self.conditions)
+
+
+class Or(CombinedCondition):
+    """Condition that requires ANY sub-condition to be true."""
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Any condition must be true."""
+        return any(condition.evaluate(context) for condition in self.conditions)
+
+
+class Not(BaseCondition):
+    """Condition that negates another condition."""
+    
+    def __init__(self, condition: BaseCondition):
+        self.condition = condition
+    
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """Negate the wrapped condition."""
+        return not self.condition.evaluate(context)
+    
+    def __str__(self) -> str:
+        return f"Not({self.condition})"
+
+
+# --- Legacy Condition Models (for backward compatibility) ---
 
 class ValueReference(BaseModel):
     """Represents a reference to a value in the pipeline context."""
@@ -24,12 +276,6 @@ class ValueReference(BaseModel):
 
 
 ConditionValue = Union[ValueReference, str, int, float, bool, list, dict, None]
-
-
-class BaseCondition(BaseModel):
-    """Base model for a condition."""
-    operator: str
-
 
 class EqualsCondition(BaseCondition):
     """Condition to check for equality."""
@@ -101,11 +347,6 @@ AnyCondition = Union[
     AndCondition,
     OrCondition,
 ]
-
-# For recursive models in Pydantic
-AndCondition.model_rebuild()
-OrCondition.model_rebuild()
-
 
 # --- Condition Evaluator ---
 
@@ -209,65 +450,3 @@ class ConditionEvaluator:
 
     def _or(self, condition: OrCondition, context: Dict[str, Any]) -> bool:
         return any(self.evaluate(cond, context) for cond in condition.conditions)
-
-
-# --- Condition DSL ---
-
-class ConditionDSL:
-    """Domain Specific Language for creating pipeline conditions."""
-
-    @staticmethod
-    def step_result_contains(step_name: str, value: Any) -> ContainsCondition:
-        """Create condition: step result contains value."""
-        return ContainsCondition(
-            container=ValueReference(ref=f'{step_name}.result'),
-            item=value,
-        )
-
-    @staticmethod
-    def step_succeeded(step_name: str) -> EqualsCondition:
-        """Create condition: step succeeded."""
-        return EqualsCondition(
-            left=ValueReference(ref=f'{step_name}.status'),
-            right='completed',
-        )
-
-    @staticmethod
-    def data_exists(key: str) -> ExistsCondition:
-        """Create condition: data exists in context."""
-        return ExistsCondition(key=key)
-
-    @staticmethod
-    def combine_and(*conditions: AnyCondition) -> AndCondition:
-        """Combine conditions with AND logic."""
-        return AndCondition(conditions=list(conditions))
-
-    @staticmethod
-    def combine_or(*conditions: AnyCondition) -> OrCondition:
-        """Combine conditions with OR logic."""
-        return OrCondition(conditions=list(conditions))
-
-    @staticmethod
-    def equals(left: ConditionValue, right: ConditionValue) -> EqualsCondition:
-        """Create an equals condition."""
-        return EqualsCondition(left=left, right=right)
-
-    @staticmethod
-    def contains(container: ConditionValue, item: ConditionValue) -> ContainsCondition:
-        """Create a contains condition."""
-        return ContainsCondition(container=container, item=item)
-
-    @staticmethod
-    def less_than(left: ConditionValue, right: ConditionValue) -> LessThanCondition:
-        """Create a less than condition."""
-        return LessThanCondition(left=left, right=right)
-
-    @staticmethod
-    def greater_than(left: ConditionValue, right: ConditionValue) -> GreaterThanCondition:
-        """Create a greater than condition."""
-        return GreaterThanCondition(left=left, right=right)
-
-    @staticmethod
-    def not_equals(left: ConditionValue, right: ConditionValue) -> NotEqualsCondition:
-        """Create a not equals condition."""
-        return NotEqualsCondition(left=left, right=right)

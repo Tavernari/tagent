@@ -61,7 +61,7 @@ class PipelineMonitor:
             return
 
         progress = self.active_pipelines[pipeline_id]
-        progress.update_step(step_name, status.value, result)
+        progress.update_step(step_name, status.value)
 
         self.metrics_collector.record_step_event(
             pipeline_id,

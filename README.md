@@ -2,7 +2,7 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.4-green.svg)](https://github.com/yourusername/tagent2)
+[![Version](https://img.shields.io/badge/version-0.7.0-green.svg)](https://github.com/yourusername/tagent2)
 
 **A developer-first framework for crafting everything from simple AI assistants to complex, multi-agent workflows with elegance and ease.**
 

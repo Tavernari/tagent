@@ -18,6 +18,26 @@ from .conditions import AnyCondition
 if TYPE_CHECKING:
     from ..config import TAgentConfig
 
+class PipelineExecutionSummary(BaseModel):
+    """Comprehensive execution summary."""
+    pipeline_name: str = Field(description="Pipeline name")
+    pipeline_id: str = Field(description="Pipeline identifier")
+    success: bool = Field(description="Overall success status")
+    execution_time: float = Field(description="Total execution time")
+    start_time: str = Field(description="Start timestamp")
+    end_time: str = Field(description="End timestamp")
+    total_cost: float = Field(description="Total execution cost")
+    steps_completed: int = Field(description="Number of completed steps")
+    steps_failed: int = Field(description="Number of failed steps")
+    steps_skipped: int = Field(description="Number of skipped steps")
+    total_steps: int = Field(description="Total number of steps")
+    success_rate: float = Field(description="Success rate percentage")
+    retry_count: int = Field(description="Total retry count")
+    failed_steps: List[str] = Field(default_factory=list, description="List of failed steps")
+    learned_facts_count: int = Field(description="Number of learned facts")
+    saved_memories_count: int = Field(description="Number of saved memories")
+    step_outputs_count: int = Field(description="Number of step outputs")
+
 
 class ExecutionMode(Enum):
     """Execution modes for pipeline steps."""
@@ -86,6 +106,10 @@ class PipelineStep:
             else:
                 raise ValueError(f"Step '{self.name}' output does not match schema {self.output_schema}")
         return result
+
+    def append_goal(self, goal: str):
+        """Append goal to step goal."""
+        self.goal += f"\n\n{goal}"
     
     def can_retry(self) -> bool:
         """Check if step can be retried."""
@@ -128,10 +152,10 @@ class PipelineStep:
 
 
 def get_execution_duration(self) -> Optional[float]:
-        """Get execution duration in seconds."""
-        if self.start_time and self.end_time:
-            return (self.end_time - self.start_time).total_seconds()
-        return None
+    """Get execution duration in seconds."""
+    if self.start_time and self.end_time:
+        return (self.end_time - self.start_time).total_seconds()
+    return None
 
 
 class PipelineSummary(BaseModel):
@@ -165,6 +189,7 @@ class Pipeline:
         self.name = name
         self.description = description
         self.steps: List[PipelineStep] = []
+        self._steps_dict: Dict[str, PipelineStep] = {}
         self.global_constraints: List[str] = []
         self.shared_context = SharedPipelineContext(
             pipeline_id=str(uuid.uuid4()),
@@ -174,17 +199,19 @@ class Pipeline:
         )
         self.created_at = datetime.now()
         self.pipeline_id = self.shared_context.pipeline_id
-        
-    def step(self, name: str, goal: str, **kwargs) -> 'Pipeline':
-        """Add step with fluent interface."""
-        step = PipelineStep(name=name, goal=goal, **kwargs)
-        self.steps.append(step)
-        return self
+
+    def get_step(self, name: str) -> PipelineStep:
+        """Get step by name."""
+        return self._steps_dict[name]
     
     def add_constraint(self, constraint: str) -> 'Pipeline':
         """Add global constraint with fluent interface."""
         self.global_constraints.append(constraint)
-        self.shared_context.global_constraints.append(constraint)
+
+        global_constraints = list(self.shared_context.global_constraints)
+        global_constraints.append(constraint)
+
+        self.shared_context.global_constraints = global_constraints
         return self
     
     def set_shared_variable(self, key: str, value: str) -> 'Pipeline':
@@ -279,6 +306,12 @@ class Pipeline:
         for status in StepStatus:
             status_counts[status.value] = len(self.get_steps_by_status(status))
         
+        # Convert FieldInfo objects to dictionaries to access keys
+        shared_vars = dict(self.shared_context.shared_variables)
+        shared_nums = dict(self.shared_context.shared_numbers)
+        shared_flags_dict = dict(self.shared_context.shared_flags)
+        shared_lists_dict = dict(self.shared_context.shared_lists)
+        
         return PipelineSummary(
             pipeline_id=self.pipeline_id,
             name=self.name,
@@ -288,33 +321,12 @@ class Pipeline:
             created_at=self.created_at.isoformat(),
             global_constraints=self.global_constraints,
             shared_context_keys=(
-                list(self.shared_context.shared_variables.keys()) +
-                list(self.shared_context.shared_numbers.keys()) +
-                list(self.shared_context.shared_flags.keys()) +
-                list(self.shared_context.shared_lists.keys())
+                list(shared_vars.keys()) +
+                list(shared_nums.keys()) +
+                list(shared_flags_dict.keys()) +
+                list(shared_lists_dict.keys())
             )
         )
-
-
-class PipelineExecutionSummary(BaseModel):
-    """Comprehensive execution summary."""
-    pipeline_name: str = Field(description="Pipeline name")
-    pipeline_id: str = Field(description="Pipeline identifier")
-    success: bool = Field(description="Overall success status")
-    execution_time: float = Field(description="Total execution time")
-    start_time: str = Field(description="Start timestamp")
-    end_time: str = Field(description="End timestamp")
-    total_cost: float = Field(description="Total execution cost")
-    steps_completed: int = Field(description="Number of completed steps")
-    steps_failed: int = Field(description="Number of failed steps")
-    steps_skipped: int = Field(description="Number of skipped steps")
-    total_steps: int = Field(description="Total number of steps")
-    success_rate: float = Field(description="Success rate percentage")
-    retry_count: int = Field(description="Total retry count")
-    failed_steps: List[str] = Field(default_factory=list, description="List of failed steps")
-    learned_facts_count: int = Field(description="Number of learned facts")
-    saved_memories_count: int = Field(description="Number of saved memories")
-    step_outputs_count: int = Field(description="Number of step outputs")
 
 
 @dataclass
@@ -503,27 +515,6 @@ class PipelineStepContext(BaseModel):
     max_retries: int = Field(default=3, description="Maximum retries allowed")
 
 
-class PipelineExecutionSummary(BaseModel):
-    """Comprehensive execution summary."""
-    pipeline_name: str = Field(description="Pipeline name")
-    pipeline_id: str = Field(description="Pipeline identifier")
-    success: bool = Field(description="Overall success status")
-    execution_time: float = Field(description="Total execution time")
-    start_time: str = Field(description="Start timestamp")
-    end_time: str = Field(description="End timestamp")
-    total_cost: float = Field(description="Total execution cost")
-    steps_completed: int = Field(description="Number of completed steps")
-    steps_failed: int = Field(description="Number of failed steps")
-    steps_skipped: int = Field(description="Number of skipped steps")
-    total_steps: int = Field(description="Total number of steps")
-    success_rate: float = Field(description="Success rate percentage")
-    retry_count: int = Field(description="Total retry count")
-    failed_steps: List[str] = Field(default_factory=list, description="List of failed steps")
-    learned_facts_count: int = Field(description="Number of learned facts")
-    saved_memories_count: int = Field(description="Number of saved memories")
-    step_outputs_count: int = Field(description="Number of step outputs")
-
-
 class PersistenceManagerSummary(BaseModel):
     """Summary of persistence manager state."""
     backend_type: str = Field(description="Type of storage backend")
@@ -573,7 +564,13 @@ class PipelineProgress(BaseModel):
     start_time: datetime = Field(default_factory=datetime.now, description="Start time of the pipeline execution")
     step_status: Dict[str, str] = Field(default_factory=dict, description="Status of each step")
 
-    def update_step(self, step_name: str, status: str, result: Any = None):
+    def update_step(self, step_name: str, status: str):
+        """Update the status of a pipeline step and track completion.
+        
+        Args:
+            step_name: Name of the step being updated
+            status: New status of the step (should be a value from StepStatus)
+        """
         self.step_status[step_name] = status
         if status == StepStatus.COMPLETED.value:
             self.completed_steps += 1
@@ -612,16 +609,18 @@ class PipelineTemplate(BaseModel):
     def create_pipeline(self, parameters: Dict[str, Any]) -> "Pipeline":
         """Create a new pipeline instance from the template."""
         # Basic validation
-        for name, spec in self.parameters.items():
+        items = dict(self.parameters)
+        for name, spec in list(items.items()):
             if spec.get("required") and name not in parameters:
                 raise ValueError(f"Missing required parameter: {name}")
         
         # Fill in defaults
-        filled_params = self.parameters.copy()
-        for name, spec in filled_params.items():
+        items = dict(self.parameters)
+        filled_params = dict(self.parameters)
+        for name, spec in items.items():
             if "default" in spec:
-                parameters.setdefault(name, spec["default"])
+                filled_params[name] = spec["default"]
 
-        return self.pipeline_factory(parameters)
+        return self.pipeline_factory(filled_params)
 
 

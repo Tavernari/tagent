@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tagent"
-version = "0.6.4"
+version = "0.7.0"
 description = "TAgent - Modular AI Agent Framework with Dynamic Tool Discovery"
 readme = "README.md"
 license = "MIT"

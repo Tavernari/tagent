@@ -16,6 +16,8 @@ from .models import (
 )
 from .conditions import AnyCondition
 
+from datetime import datetime
+
 
 class PipelineValidationError(Exception):
     """Raised when pipeline validation fails."""
@@ -87,6 +89,7 @@ class PipelineBuilder:
         optimizer = PipelineOptimizer(self.pipeline)
         optimized_steps = optimizer.optimize_execution_order()
         self.pipeline.steps = optimized_steps
+        self.pipeline._steps_dict = {step.name: step for step in self.pipeline.steps}
         
         return self.pipeline
     
