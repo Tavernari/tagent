@@ -57,50 +57,44 @@ async def main():
     
     # Create pipeline
     pipeline = PipelineBuilder(
-        "post_creator_pipeline",
-        "A pipeline to create a post from texts using an LLM for content generation.",
-    )
-
-    pipeline.step(
+        name="post_creator_pipeline",
+        description="The final goal of this pipeline is to create a blog post.",
+    ).step(
         name="read_positive_texts",
         goal="Load the positive text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
         tools_filter=["read_positive_text"],
-    )
-
-    pipeline.step(
+    ).step(
         name="read_negative_texts",
         goal="Load the negative text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
         tools_filter=["read_negative_text"],
-    )
-
-    pipeline.step(
+    ).step(
         name="read_neutral_texts",
         goal="Load the neutral text from the file",
         execution_mode=ExecutionMode.CONCURRENT,
         tools_filter=["read_neutral_text"],
-    )
-
-    # This step uses the LLM directly for content creation
-    pipeline.step(
+    ).step(
         name="post_creation",
-        goal="Create a comprehensive blog post by synthesizing the 'positive_text', 'negative_text', and 'neutral_text' from the context. The post should present a balanced view on the topic of Context Engineering.",
+        goal=(
+            "Create a comprehensive blog post by synthesizing the 'positive_text', 'negative_text'"
+            ", and 'neutral_text' from the context. The post should present a balanced view on the "
+            "topic of Context Engineering."
+        ),
         depends_on=["read_positive_texts", "read_negative_texts", "read_neutral_texts"],
         condition=ConditionDSL.combine_and(
             ConditionDSL.data_exists("read_positive_texts"),
             ConditionDSL.data_exists("read_negative_texts"),
             ConditionDSL.data_exists("read_neutral_texts"),
-        )
-    )
-
-    pipeline.step(
+        ),
+        output_schema=BlogPostOutput
+    ).step(
         name="publish_post",
         goal="Publish the post by saving the content to a file.",
         depends_on=["post_creation"],
         tools_filter=["save_post"],
-        condition=ConditionDSL.data_exists("post_creation")
-    )
+        condition=ConditionDSL.data_exists("post_creation.post")
+    ).build()
 
     # Configure TAgent
     config = TAgentConfig(
@@ -125,7 +119,7 @@ async def main():
     print()
 
     # Execute pipeline
-    executor = PipelineExecutor(pipeline.build(), config, executor_config)
+    executor = PipelineExecutor(pipeline, config, executor_config)
     result = await executor.execute()
 
     print("\n✅ Pipeline execution completed!")
